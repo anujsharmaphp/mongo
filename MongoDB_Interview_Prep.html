@@ -87,7 +87,7 @@
             <a href="#concept-4">4. Aggregation</a>
             <a href="#concept-5">5. Sharding</a>
             <a href="#concept-6">6. Replication</a>
-            <a href="#concept-7" class="pending">7. Atlas & Cloud</a>
+            <a href="#concept-7">7. Atlas & Cloud</a>
             <a href="#concept-8" class="pending">8. Performance Tuning</a>
             <a href="#concept-9" class="pending">9. Transactions</a>
             <a href="#concept-10" class="pending">10. Security</a>
@@ -1172,6 +1172,148 @@ db.patients.insertOne(
                 <div class="q">
                     <div class="question">Q: How to handle replica set across regions/AZs?</div>
                     <div class="answer">Spread members across AZs: primary + 1 secondary in primary region, 1 secondary in DR region. Set <strong>priority</strong> so primary stays in main region. If main region goes down, DR secondary gets elected. Use <code>readPreference: "nearest"</code> for geo-distributed reads. For healthcare, this ensures data survives entire AZ outage.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 7 -->
+        <div class="concept" id="concept-7">
+            <h2>7. MongoDB Atlas & Cloud</h2>
+            <span class="tag">Cloud / Managed Service</span>
+
+            <div class="point">
+                <strong>What is Atlas?</strong>
+                <p>MongoDB's fully managed cloud database service. Handles provisioning, patching, backups, scaling &mdash; you focus on code. Available on AWS, Azure, GCP.</p>
+            </div>
+
+            <div class="point">
+                <strong>Cluster Tiers</strong>
+                <p><strong>M0/M2/M5:</strong> Free/Shared tiers for dev/POC. <strong>M10+:</strong> Dedicated clusters with full features. <strong>M30+:</strong> For production. <strong>Serverless:</strong> Pay-per-operation, auto-scales to zero.</p>
+                <pre>// Connection string pattern
+mongodb+srv://user:pass@cluster0.abc123.mongodb.net/myDB?retryWrites=true&w=majority</pre>
+            </div>
+
+            <div class="point">
+                <strong>Atlas Search (Lucene-based)</strong>
+                <p>Full-text search engine built into Atlas. No separate Elasticsearch needed. Create search indexes, query with <code>$search</code> aggregation stage.</p>
+                <pre>// Create search index (Atlas UI or API)
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "diagnosis": { "type": "string", "analyzer": "lucene.standard" }
+    }
+  }
+}
+
+// Query with $search
+db.patients.aggregate([
+  { $search: {
+      index: "default",
+      text: { query: "diabetes type 2", path: "diagnosis" }
+  }},
+  { $limit: 10 },
+  { $project: { diagnosis: 1, score: { $meta: "searchScore" } } }
+])</pre>
+            </div>
+
+            <div class="point">
+                <strong>Change Streams</strong>
+                <p>Real-time event-driven pipeline. Watch insert/update/delete on collection, DB, or entire deployment. Built on oplog. Perfect for syncing caches, triggering notifications.</p>
+                <pre>// Watch a collection for changes
+const pipeline = [{ $match: { operationType: "insert" } }];
+const changeStream = db.collection("orders").watch(pipeline);
+
+changeStream.on("change", (event) => {
+  console.log("New order:", event.fullDocument);
+  // Trigger notification, update cache, sync to Kafka
+});</pre>
+            </div>
+
+            <div class="point">
+                <strong>Atlas Triggers</strong>
+                <p>Serverless functions that fire on DB events (insert/update/delete), scheduled (cron), or authentication events. Written in JS, run on Atlas App Services.</p>
+                <pre>// Database Trigger example - runs on every new patient insert
+exports = function(changeEvent) {
+  const patient = changeEvent.fullDocument;
+  if (patient.riskScore > 80) {
+    // Send alert to care team via external API
+    context.http.post({ url: "https://alerts.api/notify", body: patient });
+  }
+};</pre>
+            </div>
+
+            <div class="point">
+                <strong>Online Archive</strong>
+                <p>Automatically tier cold data from hot cluster to cheaper S3-backed storage. Query both with single connection string. Saves cost on large historical datasets.</p>
+                <pre>// Archive rule: move records older than 365 days
+{
+  "dbName": "hospital",
+  "collName": "visits",
+  "partitionFields": [
+    { "fieldName": "visitDate", "order": 0 }
+  ],
+  "criteria": {
+    "type": "DATE",
+    "dateField": "visitDate",
+    "dateFormat": "ISODATE",
+    "expireAfterDays": 365
+  }
+}</pre>
+            </div>
+
+            <div class="point">
+                <strong>Backup & Restore</strong>
+                <p><strong>Cloud Backup:</strong> Continuous backup with point-in-time restore (M10+). Snapshots every 6 hours (configurable). Restore to any second within retention window. <strong>M0-M5:</strong> Daily snapshots only.</p>
+            </div>
+
+            <div class="point">
+                <strong>Performance Advisor & Monitoring</strong>
+                <p><strong>Performance Advisor:</strong> Suggests missing indexes based on slow queries. <strong>Real-Time Performance Panel:</strong> Shows ops/sec, connections, network. <strong>Alerts:</strong> Configure thresholds for CPU, disk, oplog window, replication lag.</p>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: Why choose Atlas over self-managed MongoDB?</div>
+                    <div class="answer">Atlas handles infra: automated backups, patching, scaling, monitoring, security (encryption at rest + in transit by default). For healthcare project, Atlas ensured <strong>HIPAA compliance</strong> with encryption, VPC peering, and audit logs out of the box. Team focused on features instead of ops. Self-managed makes sense only when you need full control or have strict on-prem requirements.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Atlas Search vs Elasticsearch &mdash; when to pick which?</div>
+                    <div class="answer">Atlas Search: <strong>simpler architecture</strong> (no separate cluster), Lucene-powered, good for 80% of search use cases. Use when search is secondary feature. Elasticsearch: better for <strong>heavy analytics, log aggregation, complex scoring</strong>. In our project, we used Atlas Search for patient diagnosis lookup &mdash; avoided running separate ES cluster, reduced cost and complexity.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How do Change Streams work internally?</div>
+                    <div class="answer">Built on top of the <strong>oplog</strong> (replication log). Atlas tails the oplog and pushes matching events to your cursor. Requires replica set or sharded cluster. Supports <strong>resume tokens</strong> &mdash; if your app crashes, reconnect with last token and pick up where you left off. No events lost.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Explain Atlas connection string &mdash; what does +srv do?</div>
+                    <div class="answer"><code>mongodb+srv://</code> uses <strong>DNS SRV records</strong> to discover all replica set members automatically. Client doesn't need to list every host. If Atlas adds/removes nodes, DNS updates and client discovers new topology. The <code>retryWrites=true</code> ensures transient failures auto-retry. <code>w=majority</code> ensures writes acknowledged by majority.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How would you handle cost optimization in Atlas?</div>
+                    <div class="answer"><strong>1)</strong> Use Online Archive to move cold data to cheap storage. <strong>2)</strong> Right-size cluster tier based on actual workload. <strong>3)</strong> Use auto-scaling (M10+) to scale up during peak, down at off-peak. <strong>4)</strong> Use serverless instances for sporadic workloads. <strong>5)</strong> Optimize indexes &mdash; fewer indexes = less storage and faster writes. <strong>6)</strong> Compress data with zstd (WiredTiger default).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is Atlas Data Federation?</div>
+                    <div class="answer">Query data across Atlas clusters, S3 buckets, and Atlas Online Archive using <strong>single MQL endpoint</strong>. No ETL needed. Use for cross-source analytics &mdash; e.g., join live patient data with archived historical records in one aggregation pipeline.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to ensure high availability in Atlas across regions?</div>
+                    <div class="answer">Atlas supports <strong>multi-region clusters</strong>. Configure preferred region for primary, add electable nodes in other regions. If primary region fails, automatic failover to another region. Use <code>readPreference: "nearest"</code> for low-latency reads from closest node. For healthcare, this ensures zero downtime even during regional cloud outages.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Describe Atlas Triggers vs Change Streams &mdash; difference?</div>
+                    <div class="answer"><strong>Change Streams:</strong> Client-side cursor that your app code listens to. You manage the listener process. <strong>Atlas Triggers:</strong> Serverless &mdash; Atlas runs your function automatically, no infrastructure to manage. Use Triggers for simple reactions (send email, call API). Use Change Streams when you need complex processing in your own app/service (e.g., sync to Kafka).</div>
                 </div>
             </div>
         </div>
