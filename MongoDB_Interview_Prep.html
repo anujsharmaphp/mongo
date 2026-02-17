@@ -86,7 +86,7 @@
             <a href="#concept-3">3. Indexing</a>
             <a href="#concept-4">4. Aggregation</a>
             <a href="#concept-5">5. Sharding</a>
-            <a href="#concept-6" class="pending">6. Replication</a>
+            <a href="#concept-6">6. Replication</a>
             <a href="#concept-7" class="pending">7. Atlas & Cloud</a>
             <a href="#concept-8" class="pending">8. Performance Tuning</a>
             <a href="#concept-9" class="pending">9. Transactions</a>
@@ -1005,6 +1005,173 @@ db.patients.find({ name: "Rajesh" })  // asks ALL shards</code></pre>
                 <div class="q">
                     <div class="question">Q: How did you design sharding for the eCommerce collectibles platform?</div>
                     <div class="answer">Products collection: <code>{ category: 1, _id: "hashed" }</code> &mdash; category gives targeted queries (users browse by category), hashed _id distributes evenly within category. Orders collection: <code>{ userId: "hashed" }</code> &mdash; even distribution, user's orders go to same shard (targeted lookup). Clickstream: <code>{ date: 1 }</code> ranged &mdash; analytics queries always filter by date range.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 6 -->
+        <div class="concept" id="concept-6">
+            <h2>6. Replication & High Availability</h2>
+            <span class="tag">SRE / Reliability</span>
+
+            <div class="point">
+                <strong>What is a Replica Set?</strong>
+                <p>Group of mongod instances with the same data. One <strong>Primary</strong> (reads+writes) and multiple <strong>Secondaries</strong> (replicate from primary). Automatic failover.</p>
+            </div>
+
+            <div class="point">
+                <strong>Replica Set Members</strong>
+                <ul>
+                    <li><strong>Primary</strong> &mdash; receives all writes. Only one at a time.</li>
+                    <li><strong>Secondary</strong> &mdash; replicates from primary's oplog. Can serve reads if configured.</li>
+                    <li><strong>Arbiter</strong> &mdash; votes in elections but holds NO data. Use to break tie (avoid if possible).</li>
+                    <li><strong>Hidden</strong> &mdash; invisible to app, won't become primary. Used for backups/analytics.</li>
+                    <li><strong>Delayed</strong> &mdash; replicates with a time delay (e.g., 1 hour behind). Protection against accidental deletes.</li>
+                </ul>
+<pre><code>// Typical setup: 3 members (1 primary + 2 secondaries)
+// Minimum for automatic failover: 3 voting members
+
+rs.initiate({
+  _id: "healthcareRS",
+  members: [
+    { _id: 0, host: "mongo1:27017" },
+    { _id: 1, host: "mongo2:27017" },
+    { _id: 2, host: "mongo3:27017" }
+  ]
+})</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Oplog (Operations Log)</strong>
+                <ul>
+                    <li>Capped collection on primary: <code>local.oplog.rs</code></li>
+                    <li>Records every write operation</li>
+                    <li>Secondaries tail the oplog and replay operations</li>
+                    <li>Idempotent &mdash; safe to replay multiple times</li>
+                    <li>Size matters &mdash; if secondary falls behind more than oplog window, needs full resync</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Election & Failover</strong>
+                <ul>
+                    <li>If primary goes down, secondaries hold an <strong>election</strong></li>
+                    <li>Needs <strong>majority vote</strong> (2 out of 3, 3 out of 5)</li>
+                    <li>Election takes <strong>~10-12 seconds</strong> (configurable with electionTimeoutMillis)</li>
+                    <li>During election, <strong>no writes</strong> are accepted</li>
+                    <li>Priority setting controls which member is preferred as primary</li>
+                </ul>
+<pre><code>// Set priority (higher = preferred primary)
+cfg = rs.conf()
+cfg.members[0].priority = 10  // strongly prefer this node
+cfg.members[1].priority = 5
+cfg.members[2].priority = 1
+rs.reconfig(cfg)
+
+// Check replica set status
+rs.status()    // shows who is primary, replication lag
+rs.printReplicationInfo()  // oplog size and window</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Write Concern (how many nodes confirm write)</strong>
+                <ul>
+                    <li><code>w: 1</code> &mdash; primary only (fast, risk of data loss on failover)</li>
+                    <li><code>w: "majority"</code> &mdash; majority of replica set (safe, slightly slower)</li>
+                    <li><code>w: 3</code> &mdash; all 3 members confirm</li>
+                    <li><code>j: true</code> &mdash; wait for journal write (most durable)</li>
+                </ul>
+<pre><code>// Healthcare: maximum durability
+db.patients.insertOne(
+  { name: "Rajesh", codes: ["E11"] },
+  { writeConcern: { w: "majority", j: true, wtimeout: 5000 } }
+)</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Read Concern (consistency level for reads)</strong>
+                <ul>
+                    <li><strong>"local"</strong> &mdash; returns most recent data on node (may be rolled back)</li>
+                    <li><strong>"available"</strong> &mdash; like local, for sharded collections</li>
+                    <li><strong>"majority"</strong> &mdash; returns data acknowledged by majority (won't be rolled back)</li>
+                    <li><strong>"linearizable"</strong> &mdash; strongest. Waits for all prior majority writes. Slow.</li>
+                    <li><strong>"snapshot"</strong> &mdash; for multi-document transactions</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Replication Lag</strong>
+                <p>Time difference between primary's latest write and secondary's latest applied op. Monitor with:</p>
+<pre><code>rs.printSecondaryReplicationInfo()
+// Output shows lag in seconds for each secondary
+
+// Or check in Atlas: Replication Lag chart
+// Alert threshold: typically > 10 seconds = warning</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Rollback</strong>
+                <ul>
+                    <li>Happens when old primary had writes not replicated to majority before failover</li>
+                    <li>When old primary rejoins, it rolls back those unreplicated writes</li>
+                    <li>Rolled-back data saved to <code>rollback/</code> directory</li>
+                    <li><strong>Prevention:</strong> use <code>w: "majority"</code> for all critical writes</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Best Practices</strong>
+                <ul>
+                    <li>Always odd number of voting members (3, 5, 7 &mdash; max 7 voters)</li>
+                    <li>Max 50 members total in a replica set</li>
+                    <li>Spread members across data centers / AZs</li>
+                    <li>Use <code>w: "majority"</code> for important data</li>
+                    <li>Monitor replication lag, set alerts</li>
+                    <li>Use hidden member for backups, delayed member for disaster recovery</li>
+                </ul>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you ensure high availability for healthcare systems?</div>
+                    <div class="answer">Used <strong>3-member replica set</strong> across AWS availability zones. Write concern <code>w: "majority", j: true</code> for all patient data. Hidden member for nightly backups. Delayed member (1 hour) for accidental delete recovery. Monitoring replication lag with alerts at >5 seconds. Achieved <strong>99.99% uptime</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What happens when the primary goes down?</div>
+                    <div class="answer">Remaining secondaries hold an <strong>election</strong> (needs majority vote). New primary elected in ~10-12 seconds. During election, writes are rejected (app retries). Reads can continue from secondaries if readPreference is secondaryPreferred. Once new primary is elected, app reconnects automatically via connection string.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the oplog and why does its size matter?</div>
+                    <div class="answer">Oplog is a <strong>capped collection</strong> recording all writes. Secondaries tail it to stay in sync. If a secondary is offline longer than the <strong>oplog window</strong> (time it takes for oplog to fill), it can't catch up and needs full resync (hours/days for large datasets). Size oplog to cover at least 24-48 hours of writes.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Write Concern "majority" vs w:1 &mdash; trade-off?</div>
+                    <div class="answer"><code>w:1</code>: fast (acknowledged by primary only) but risk of <strong>data loss</strong> if primary crashes before replicating. <code>w:"majority"</code>: slightly slower (~1-5ms more) but data <strong>survives any single node failure</strong>. For healthcare/financial data, always use majority. For logs/analytics, w:1 is acceptable.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is a rollback and how to prevent it?</div>
+                    <div class="answer">Rollback occurs when old primary had writes <strong>not replicated to majority</strong> before failover. When it rejoins as secondary, those writes are rolled back. <strong>Prevention:</strong> use <code>w: "majority"</code> &mdash; guarantees data is on majority before acknowledging. Rolled-back data is saved to files for manual recovery.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Why use a Hidden or Delayed member?</div>
+                    <div class="answer"><strong>Hidden:</strong> never becomes primary, invisible to app. Perfect for running backups, analytics queries, or reporting without impacting production. <strong>Delayed:</strong> replicates X hours behind. If someone drops a collection, you have a window to recover from the delayed member before the drop propagates.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Arbiter vs adding a third data-bearing member?</div>
+                    <div class="answer">Arbiter only votes, holds no data. Cheaper but <strong>risky</strong> &mdash; if one data member fails, you have only 1 copy of data. Always prefer 3 data-bearing members. Arbiter is a last resort for cost-sensitive environments. MongoDB docs recommend against arbiters for production.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to handle replica set across regions/AZs?</div>
+                    <div class="answer">Spread members across AZs: primary + 1 secondary in primary region, 1 secondary in DR region. Set <strong>priority</strong> so primary stays in main region. If main region goes down, DR secondary gets elected. Use <code>readPreference: "nearest"</code> for geo-distributed reads. For healthcare, this ensures data survives entire AZ outage.</div>
                 </div>
             </div>
         </div>
