@@ -88,7 +88,7 @@
             <a href="#concept-5">5. Sharding</a>
             <a href="#concept-6">6. Replication</a>
             <a href="#concept-7">7. Atlas & Cloud</a>
-            <a href="#concept-8" class="pending">8. Performance Tuning</a>
+            <a href="#concept-8">8. Performance Tuning</a>
             <a href="#concept-9" class="pending">9. Transactions</a>
             <a href="#concept-10" class="pending">10. Security</a>
             <a href="#concept-11" class="pending">11. Kafka + MongoDB</a>
@@ -1314,6 +1314,196 @@ exports = function(changeEvent) {
                 <div class="q">
                     <div class="question">Q: Describe Atlas Triggers vs Change Streams &mdash; difference?</div>
                     <div class="answer"><strong>Change Streams:</strong> Client-side cursor that your app code listens to. You manage the listener process. <strong>Atlas Triggers:</strong> Serverless &mdash; Atlas runs your function automatically, no infrastructure to manage. Use Triggers for simple reactions (send email, call API). Use Change Streams when you need complex processing in your own app/service (e.g., sync to Kafka).</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 8 -->
+        <div class="concept" id="concept-8">
+            <h2>8. Performance Tuning</h2>
+            <span class="tag">Production Critical</span>
+
+            <div class="point">
+                <strong>The Performance Checklist</strong>
+                <ul>
+                    <li><strong>1. Indexes</strong> &mdash; right indexes for your queries (ESR rule)</li>
+                    <li><strong>2. Schema</strong> &mdash; embed vs reference, avoid unbounded arrays</li>
+                    <li><strong>3. Working Set</strong> &mdash; hot data must fit in RAM</li>
+                    <li><strong>4. Query Patterns</strong> &mdash; avoid COLLSCAN, use projections</li>
+                    <li><strong>5. Connection Pooling</strong> &mdash; reuse connections, don't open/close per request</li>
+                    <li><strong>6. Write Concern</strong> &mdash; tune based on data criticality</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Profiler &mdash; Find Slow Queries</strong>
+                <p>MongoDB profiler logs slow operations. Level 0 = off, Level 1 = slow ops only, Level 2 = all ops.</p>
+<pre><code>// Enable profiler for queries > 100ms
+db.setProfilingLevel(1, { slowms: 100 })
+
+// Check slow queries
+db.system.profile.find().sort({ ts: -1 }).limit(5).pretty()
+
+// Key fields to check:
+// millis - execution time
+// planSummary - IXSCAN or COLLSCAN
+// nscanned vs nreturned - ratio should be close to 1
+// command.filter - what query was run</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>explain() Deep Dive</strong>
+<pre><code>db.patients.find({ status: "active", age: { $gt: 30 } })
+  .sort({ name: 1 })
+  .explain("executionStats")
+
+// What to look for:
+// 1. winningPlan.stage = "IXSCAN" (good) vs "COLLSCAN" (bad)
+// 2. totalKeysExamined / nReturned &asymp; 1.0 (efficient)
+// 3. totalDocsExamined / nReturned &asymp; 1.0 (no wasted reads)
+// 4. executionTimeMillis - should be < 100ms for most queries
+// 5. rejectedPlans - shows other plans MongoDB considered
+
+// "allPlansExecution" mode shows all candidate plans
+db.patients.find({...}).explain("allPlansExecution")</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Working Set &amp; Memory</strong>
+                <p>WiredTiger cache holds frequently accessed data + indexes. If working set exceeds cache, MongoDB reads from disk = <strong>massive slowdown</strong>.</p>
+<pre><code>// Check cache usage
+db.serverStatus().wiredTiger.cache
+// "bytes currently in the cache"
+// "maximum bytes configured" (default: 50% of RAM - 1GB)
+
+// Check if data fits in RAM
+db.patients.stats()
+// dataSize: total data
+// indexSize: total indexes
+// Rule: dataSize + indexSize < available RAM = fast</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Connection Pooling</strong>
+                <p>Each connection uses ~1MB RAM on server. Don't open/close per request. Use driver's built-in pool.</p>
+<pre><code>// Node.js - connection pool settings
+const client = new MongoClient(uri, {
+  maxPoolSize: 50,       // max connections in pool
+  minPoolSize: 10,       // keep minimum ready
+  maxIdleTimeMS: 30000,  // close idle connections after 30s
+  waitQueueTimeoutMS: 5000  // timeout if pool exhausted
+});
+
+// WRONG: creating new client per request
+app.get("/api", async (req, res) => {
+  const client = new MongoClient(uri); // BAD!
+  await client.connect();
+  // ...
+});
+
+// RIGHT: reuse single client
+const client = new MongoClient(uri);
+await client.connect();  // once at startup
+app.get("/api", async (req, res) => {
+  const db = client.db("mydb");  // reuse
+  // ...
+});</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Projection &mdash; Fetch Only What You Need</strong>
+<pre><code>// BAD: fetches entire document (all fields)
+db.patients.find({ status: "active" })
+
+// GOOD: fetch only needed fields
+db.patients.find(
+  { status: "active" },
+  { name: 1, age: 1, diagnosis: 1, _id: 0 }
+)
+// Less data over network, less memory, faster</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Bulk Operations</strong>
+                <p>Batch writes reduce network round trips. Use <code>bulkWrite()</code> for mixed operations or <code>insertMany()</code> for batch inserts.</p>
+<pre><code>// Instead of 1000 individual inserts
+// Use insertMany (1 round trip)
+db.patients.insertMany([doc1, doc2, ..., doc1000], { ordered: false })
+
+// bulkWrite for mixed operations
+db.patients.bulkWrite([
+  { insertOne: { document: { name: "A", age: 30 } } },
+  { updateOne: { filter: { _id: id1 }, update: { $set: { status: "active" } } } },
+  { deleteOne: { filter: { _id: id2 } } }
+], { ordered: false })  // ordered:false = parallel execution</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Read Preference Tuning</strong>
+                <ul>
+                    <li><strong>primary</strong> &mdash; all reads from primary (default, strongest consistency)</li>
+                    <li><strong>primaryPreferred</strong> &mdash; primary, fallback to secondary</li>
+                    <li><strong>secondary</strong> &mdash; read from secondaries (offload primary)</li>
+                    <li><strong>secondaryPreferred</strong> &mdash; secondary, fallback to primary</li>
+                    <li><strong>nearest</strong> &mdash; lowest latency node (best for geo-distributed)</li>
+                </ul>
+<pre><code>// Offload analytics reads to secondary
+db.patients.find({ status: "active" })
+  .readPref("secondaryPreferred")</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Compression</strong>
+                <ul>
+                    <li><strong>snappy</strong> &mdash; default for collections. Good balance of speed + compression</li>
+                    <li><strong>zstd</strong> &mdash; better compression ratio, slightly more CPU. Best for storage-heavy</li>
+                    <li><strong>zlib</strong> &mdash; legacy, use zstd instead</li>
+                    <li>Network compression: <code>compressors=zstd</code> in connection string</li>
+                </ul>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you tune performance for healthcare data at scale?</div>
+                    <div class="answer"><strong>1)</strong> Profiled slow queries (>100ms) with profiler level 1. <strong>2)</strong> Added compound indexes following ESR rule &mdash; reduced query time from 800ms to 15ms. <strong>3)</strong> Ensured working set fits in RAM by archiving old records. <strong>4)</strong> Used projections in all API responses. <strong>5)</strong> Connection pooling with maxPoolSize=100. <strong>6)</strong> Bulk writes for batch patient imports (10K docs/batch).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: A query is slow &mdash; walk through your debugging steps.</div>
+                    <div class="answer"><strong>Step 1:</strong> Run <code>explain("executionStats")</code> &mdash; check if COLLSCAN or IXSCAN. <strong>Step 2:</strong> If COLLSCAN, add appropriate index. <strong>Step 3:</strong> Check ratio of keysExamined to nReturned. If >>1, index isn't selective enough. <strong>Step 4:</strong> Check if sort is in-memory (avoid). <strong>Step 5:</strong> Check projection &mdash; are we fetching unnecessary fields? <strong>Step 6:</strong> Check profiler for pattern of slow queries.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the working set and why does it matter?</div>
+                    <div class="answer">Working set = <strong>frequently accessed data + indexes</strong>. WiredTiger keeps it in cache (default 50% of RAM - 1GB). If working set > cache, MongoDB reads from disk (page faults) &mdash; 1000x slower. Monitor with <code>db.serverStatus().wiredTiger.cache</code>. Fix: add RAM, archive cold data, or shard to distribute across servers.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Connection pooling &mdash; what happens without it?</div>
+                    <div class="answer">Each connection = ~1MB RAM + TCP handshake + auth. Without pooling, every request opens a new connection &mdash; at 1000 req/sec, that's 1000 connections = 1GB RAM wasted + connection overhead. With pooling, 50 connections are <strong>reused</strong> across all requests. Always initialize client once at app startup, reuse across requests.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: ordered vs unordered bulk writes?</div>
+                    <div class="answer"><strong>ordered: true</strong> (default) &mdash; executes sequentially, stops on first error. <strong>ordered: false</strong> &mdash; executes in parallel, continues on errors, reports all errors at end. Use <code>ordered: false</code> for batch imports where individual failures are acceptable (e.g., importing patient records &mdash; don't stop 10K inserts because one has a duplicate key).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: When to read from secondary?</div>
+                    <div class="answer">Use <code>secondaryPreferred</code> for: <strong>1)</strong> Analytics/reporting queries that can tolerate slight staleness. <strong>2)</strong> Offloading read-heavy workloads from primary. <strong>3)</strong> Geo-distributed reads with <code>nearest</code>. <strong>Never</strong> use secondary reads for data that must be up-to-the-second current (e.g., checking patient's current medication). Reads from secondary may be milliseconds to seconds behind.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to handle large batch imports without impacting production?</div>
+                    <div class="answer"><strong>1)</strong> Use <code>insertMany</code> with <code>ordered: false</code> in batches of 5K-10K. <strong>2)</strong> Set lower write concern <code>w:1</code> for imports (not majority). <strong>3)</strong> Run during off-peak hours. <strong>4)</strong> Rate-limit inserts with small delays between batches. <strong>5)</strong> Build indexes AFTER bulk import (faster than indexing during insert). <strong>6)</strong> Use <code>mongoimport --numInsertionWorkers</code> for parallel import.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: snappy vs zstd compression &mdash; which to choose?</div>
+                    <div class="answer"><strong>snappy</strong> (default): faster compression/decompression, ~3-4x compression ratio. Good for balanced workloads. <strong>zstd</strong>: better compression (~5-7x), slightly more CPU. Choose zstd for storage-heavy, read-heavy workloads where disk I/O is the bottleneck. For our healthcare system with large text documents, zstd saved ~40% storage vs snappy.</div>
                 </div>
             </div>
         </div>
