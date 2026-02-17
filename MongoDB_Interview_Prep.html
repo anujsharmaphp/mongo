@@ -85,7 +85,7 @@
             <a href="#concept-2">2. Schema Design</a>
             <a href="#concept-3">3. Indexing</a>
             <a href="#concept-4">4. Aggregation</a>
-            <a href="#concept-5" class="pending">5. Sharding</a>
+            <a href="#concept-5">5. Sharding</a>
             <a href="#concept-6" class="pending">6. Replication</a>
             <a href="#concept-7" class="pending">7. Atlas & Cloud</a>
             <a href="#concept-8" class="pending">8. Performance Tuning</a>
@@ -854,6 +854,157 @@ db.patients.aggregate([...], { allowDiskUse: true })</code></pre>
       patientCount: "$count", _id: 0
   }}
 ])</code></pre></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 5 -->
+        <div class="concept" id="concept-5">
+            <h2>5. Sharding & Horizontal Scaling</h2>
+            <span class="tag">Architecture Level</span>
+
+            <div class="point">
+                <strong>What is Sharding?</strong>
+                <p>Splitting data across multiple servers (shards). Each shard holds a subset of data. Enables <strong>horizontal scaling</strong> &mdash; add more machines instead of bigger machine.</p>
+            </div>
+
+            <div class="point">
+                <strong>Sharded Cluster Components</strong>
+                <ul>
+                    <li><strong>Shard</strong> &mdash; each shard is a replica set holding a portion of data</li>
+                    <li><strong>mongos</strong> &mdash; query router. App connects to mongos, not directly to shards</li>
+                    <li><strong>Config Servers</strong> &mdash; store metadata (which data is on which shard). Also a replica set</li>
+                </ul>
+<pre><code>// Architecture:
+App &rarr; mongos (router) &rarr; Shard 1 (replica set)
+                         &rarr; Shard 2 (replica set)
+                         &rarr; Shard 3 (replica set)
+         Config Servers (replica set) - stores chunk mappings</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Shard Key (most important decision)</strong>
+                <p>The field used to distribute data across shards. <strong>Cannot be changed after sharding</strong> (until MongoDB 5.0 resharding). Choose carefully!</p>
+<pre><code>// Shard a collection
+sh.enableSharding("healthcare_db")
+sh.shardCollection("healthcare_db.patients", { region: 1 })
+//                                             ^ shard key</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Sharding Strategies</strong>
+                <ul>
+                    <li><strong>Ranged Sharding</strong> &mdash; consecutive values go to same shard. Good for range queries. Risk: hotspot if writes are sequential (e.g., timestamps)</li>
+                    <li><strong>Hashed Sharding</strong> &mdash; hash of shard key distributes evenly. Good write distribution. Bad for range queries (scatter-gather)</li>
+                    <li><strong>Zone Sharding</strong> &mdash; assign data ranges to specific shards. Good for geo/compliance (e.g., India data stays on India shard)</li>
+                </ul>
+<pre><code>// Hashed sharding
+sh.shardCollection("db.orders", { orderId: "hashed" })
+
+// Zone sharding (geo-based)
+sh.addShardTag("shard1", "INDIA")
+sh.addShardTag("shard2", "US")
+sh.addTagRange("db.patients", { region: "IN" }, { region: "IN\uffff" }, "INDIA")
+sh.addTagRange("db.patients", { region: "US" }, { region: "US\uffff" }, "US")</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Good Shard Key Properties</strong>
+                <ul>
+                    <li><strong>High cardinality</strong> &mdash; many unique values (NOT status: "active/inactive")</li>
+                    <li><strong>Even distribution</strong> &mdash; data spread equally across shards</li>
+                    <li><strong>Query isolation</strong> &mdash; most queries include shard key (targeted queries)</li>
+                    <li><strong>Not monotonically increasing</strong> &mdash; avoid _id, timestamps (causes hotspot on last shard)</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Targeted vs Scatter-Gather Queries</strong>
+                <ul>
+                    <li><strong>Targeted</strong> &mdash; query includes shard key, mongos routes to ONE shard. Fast.</li>
+                    <li><strong>Scatter-Gather</strong> &mdash; query without shard key, mongos asks ALL shards, merges results. Slow.</li>
+                </ul>
+<pre><code>// Shard key: { region: 1 }
+
+// TARGETED - includes shard key
+db.patients.find({ region: "IN", name: "Rajesh" })  // goes to 1 shard
+
+// SCATTER-GATHER - no shard key
+db.patients.find({ name: "Rajesh" })  // asks ALL shards</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Chunks & Balancer</strong>
+                <ul>
+                    <li><strong>Chunk</strong> &mdash; contiguous range of shard key values. Default max size: 128MB</li>
+                    <li><strong>Splitting</strong> &mdash; when chunk exceeds max size, MongoDB splits it into two</li>
+                    <li><strong>Balancer</strong> &mdash; background process that moves chunks between shards to keep data even</li>
+                    <li>Balancer runs on config server, can be scheduled to off-peak hours</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>When to Shard</strong>
+                <ul>
+                    <li>Single server can't handle data volume (disk full)</li>
+                    <li>Single server can't handle throughput (CPU/RAM maxed)</li>
+                    <li>Working set doesn't fit in RAM</li>
+                    <li>Typically at <strong>1TB+</strong> data or <strong>50K+ ops/sec</strong></li>
+                </ul>
+                <p>Don't shard too early &mdash; adds complexity. Start with replica set, shard when needed.</p>
+            </div>
+
+            <div class="point">
+                <strong>Sharding Limitations</strong>
+                <ul>
+                    <li>Unique indexes must include the shard key</li>
+                    <li>$lookup only works on unsharded or same-shard collections (before 5.1)</li>
+                    <li>Transactions across shards are slower than single-shard</li>
+                    <li>Resharding (changing shard key) possible since 5.0 but expensive</li>
+                </ul>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How would you shard the healthcare patient collection?</div>
+                    <div class="answer">Use <strong>compound shard key</strong>: <code>{ region: 1, patientId: "hashed" }</code>. Region provides query isolation (most queries filter by hospital/region) and enables zone sharding for data compliance. Hashed patientId ensures even distribution within each region. Avoids hotspot since patientId is random.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Why not use _id as shard key?</div>
+                    <div class="answer">ObjectId is <strong>monotonically increasing</strong> (starts with timestamp). All new writes go to the last shard &mdash; creating a <strong>hotspot</strong>. One shard gets all the writes while others sit idle. Use hashed _id if you must: <code>{ _id: "hashed" }</code>, but then range queries on _id become scatter-gather.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Targeted vs Scatter-Gather query?</div>
+                    <div class="answer"><strong>Targeted</strong>: query includes shard key, goes to one shard. O(1) routing. <strong>Scatter-Gather</strong>: no shard key in query, mongos asks all shards, merges. O(n) where n = number of shards. Always design queries to include shard key. If 80% of queries use region, shard by region.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Ranged vs Hashed sharding &mdash; when to use each?</div>
+                    <div class="answer"><strong>Ranged</strong>: when you need range queries on shard key (date ranges, alphabetical). Risk: uneven distribution. <strong>Hashed</strong>: when you need even write distribution. Risk: range queries become scatter-gather. For eCommerce orders, used hashed on orderId for even writes. For analytics by date, used ranged on date.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the Balancer and can it cause issues?</div>
+                    <div class="answer">Background process that <strong>migrates chunks</strong> between shards for even distribution. Can cause performance impact during migration (network + disk I/O). Best practice: schedule balancer window during off-peak hours using <code>sh.setBalancerState()</code> and balancer window configuration. Monitor with <code>sh.status()</code>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is Zone Sharding and when did you use it?</div>
+                    <div class="answer">Assigns data ranges to specific shards based on tags. Used for <strong>data residency compliance</strong> &mdash; India patient data must stay on India servers. Tag shard1 as "INDIA", define zone range for region "IN". Also useful for tiered storage &mdash; hot data on SSD shards, cold data on HDD shards.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Can you change the shard key after sharding?</div>
+                    <div class="answer">Before 5.0: <strong>No</strong>. Had to create new collection, reshard, migrate. Since MongoDB 5.0: <strong>reshardCollection</strong> command allows changing shard key online. It creates a temp collection, copies data, does a fast cutover. Still expensive on large collections &mdash; plan during maintenance window.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How did you design sharding for the eCommerce collectibles platform?</div>
+                    <div class="answer">Products collection: <code>{ category: 1, _id: "hashed" }</code> &mdash; category gives targeted queries (users browse by category), hashed _id distributes evenly within category. Orders collection: <code>{ userId: "hashed" }</code> &mdash; even distribution, user's orders go to same shard (targeted lookup). Clickstream: <code>{ date: 1 }</code> ranged &mdash; analytics queries always filter by date range.</div>
                 </div>
             </div>
         </div>
