@@ -84,7 +84,7 @@
             <a href="#concept-1" class="active">1. Fundamentals</a>
             <a href="#concept-2">2. Schema Design</a>
             <a href="#concept-3">3. Indexing</a>
-            <a href="#concept-4" class="pending">4. Aggregation</a>
+            <a href="#concept-4">4. Aggregation</a>
             <a href="#concept-5" class="pending">5. Sharding</a>
             <a href="#concept-6" class="pending">6. Replication</a>
             <a href="#concept-7" class="pending">7. Atlas & Cloud</a>
@@ -615,6 +615,245 @@ db.patients.unhideIndex("name_1")           // unhide</code></pre>
                 <div class="q">
                     <div class="question">Q: How to safely remove an unused index in production?</div>
                     <div class="answer">Step 1: <code>hideIndex()</code> &mdash; makes planner ignore it without dropping. Step 2: Monitor for a week &mdash; if no performance regression, it's safe. Step 3: <code>dropIndex()</code>. Never drop directly in production &mdash; hiding is reversible, dropping is not.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 4 -->
+        <div class="concept" id="concept-4">
+            <h2>4. Aggregation Framework</h2>
+            <span class="tag">Heavy Interview Topic</span>
+
+            <div class="point">
+                <strong>What is it?</strong>
+                <p>Pipeline of stages that process documents. Each stage transforms data and passes result to next stage. Like Unix pipes: <code>data | $match | $group | $sort | result</code></p>
+            </div>
+
+            <div class="point">
+                <strong>Core Stages (must know)</strong>
+                <ul>
+                    <li><strong>$match</strong> &mdash; filter docs (like WHERE). Put early to reduce data.</li>
+                    <li><strong>$group</strong> &mdash; group by field + apply accumulators (like GROUP BY)</li>
+                    <li><strong>$project</strong> &mdash; reshape docs, include/exclude/compute fields (like SELECT)</li>
+                    <li><strong>$sort</strong> &mdash; order results</li>
+                    <li><strong>$limit / $skip</strong> &mdash; pagination</li>
+                    <li><strong>$unwind</strong> &mdash; flatten an array (1 doc per array element)</li>
+                    <li><strong>$lookup</strong> &mdash; join with another collection</li>
+                    <li><strong>$addFields</strong> &mdash; add new computed fields (keeps existing)</li>
+                    <li><strong>$count</strong> &mdash; count total docs</li>
+                    <li><strong>$facet</strong> &mdash; run multiple pipelines in parallel on same data</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>$group Accumulators</strong>
+                <ul>
+                    <li><strong>$sum</strong>, <strong>$avg</strong>, <strong>$min</strong>, <strong>$max</strong> &mdash; math operations</li>
+                    <li><strong>$first</strong>, <strong>$last</strong> &mdash; first/last value in group</li>
+                    <li><strong>$push</strong> &mdash; collect values into array</li>
+                    <li><strong>$addToSet</strong> &mdash; collect unique values into array</li>
+                    <li><strong>$count</strong> &mdash; count docs in group</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Example 1: Patient stats by diagnosis</strong>
+<pre><code>db.patients.aggregate([
+  { $match: { status: "active" } },
+  { $unwind: "$codes" },
+  { $group: {
+      _id: "$codes",
+      count: { $sum: 1 },
+      avgAge: { $avg: "$age" },
+      patients: { $push: "$name" }
+  }},
+  { $sort: { count: -1 } },
+  { $limit: 10 }
+])
+// Output: top 10 diagnosis codes with patient count and avg age</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Example 2: Monthly revenue (eCommerce)</strong>
+<pre><code>db.orders.aggregate([
+  { $match: { status: "completed", year: 2024 } },
+  { $group: {
+      _id: { month: "$month", category: "$category" },
+      revenue: { $sum: "$total" },
+      orders: { $sum: 1 },
+      avgOrder: { $avg: "$total" }
+  }},
+  { $sort: { "_id.month": 1 } },
+  { $project: {
+      month: "$_id.month",
+      category: "$_id.category",
+      revenue: 1,
+      orders: 1,
+      avgOrder: { $round: ["$avgOrder", 2] },
+      _id: 0
+  }}
+])</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>$unwind (flatten arrays)</strong>
+<pre><code>// Before unwind
+{ name: "Rajesh", codes: ["E11", "I10", "M19"] }
+
+// After { $unwind: "$codes" }
+{ name: "Rajesh", codes: "E11" }
+{ name: "Rajesh", codes: "I10" }
+{ name: "Rajesh", codes: "M19" }
+
+// Preserve empty arrays (don't lose docs without the field)
+{ $unwind: { path: "$codes", preserveNullAndEmptyArrays: true } }</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>$lookup (JOIN)</strong>
+<pre><code>// Simple lookup
+{ $lookup: {
+    from: "doctors",
+    localField: "doctorId",
+    foreignField: "_id",
+    as: "doctor"
+}}
+
+// Pipeline lookup (more powerful - add conditions)
+{ $lookup: {
+    from: "lab_reports",
+    let: { pid: "$_id" },
+    pipeline: [
+      { $match: { $expr: { $eq: ["$patientId", "$$pid"] } } },
+      { $match: { type: "blood_test" } },
+      { $sort: { date: -1 } },
+      { $limit: 5 }
+    ],
+    as: "recentLabs"
+}}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>$facet (multiple pipelines at once)</strong>
+<pre><code>// Get total count + paginated results + category breakdown in ONE query
+db.products.aggregate([
+  { $match: { status: "active" } },
+  { $facet: {
+      totalCount: [{ $count: "count" }],
+      results: [{ $skip: 20 }, { $limit: 10 }],
+      byCategory: [
+        { $group: { _id: "$category", count: { $sum: 1 } } }
+      ]
+  }}
+])</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>$bucket / $bucketAuto (histogram)</strong>
+<pre><code>// Group patients by age ranges
+db.patients.aggregate([
+  { $bucket: {
+      groupBy: "$age",
+      boundaries: [0, 18, 30, 50, 70, 120],
+      default: "unknown",
+      output: {
+        count: { $sum: 1 },
+        names: { $push: "$name" }
+      }
+  }}
+])
+// Output: { _id: 0, count: 5 }, { _id: 18, count: 12 }, ...</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Performance Tips</strong>
+                <ul>
+                    <li><strong>$match early</strong> &mdash; filter first, reduces data for later stages</li>
+                    <li><strong>$match + $sort at start</strong> can use indexes</li>
+                    <li>After $group/$project, indexes can't be used</li>
+                    <li><strong>allowDiskUse: true</strong> for large datasets (default 100MB RAM limit per stage)</li>
+                    <li>Use <strong>$project</strong> early to drop unnecessary fields</li>
+                </ul>
+<pre><code>// Allow disk use for large aggregations
+db.patients.aggregate([...], { allowDiskUse: true })</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>$out / $merge (save results)</strong>
+<pre><code>// $out - replace entire collection with results
+{ $out: "monthly_reports" }
+
+// $merge - upsert results into existing collection (better)
+{ $merge: {
+    into: "monthly_reports",
+    on: "_id",
+    whenMatched: "replace",
+    whenNotMatched: "insert"
+}}</code></pre>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you use aggregation for clickstream intelligence at Beckett?</div>
+                    <div class="answer">Built pipelines to analyze user browsing patterns: <code>$match</code> by date range, <code>$group</code> by productId to count views/clicks, <code>$sort</code> by engagement score, <code>$lookup</code> to join product details. Used <code>$facet</code> to get trending products + category breakdown + hourly patterns in a single query. Results saved with <code>$merge</code> into a precomputed analytics collection.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: $match at beginning vs end - does it matter?</div>
+                    <div class="answer">Yes, hugely. <strong>$match at the start</strong> can use indexes and reduces docs flowing through the pipeline. $match after $group or $project <strong>cannot use indexes</strong> and processes all docs. Always filter as early as possible. Same for $sort &mdash; at the start it uses indexes, later it sorts in memory.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is $facet and when to use it?</div>
+                    <div class="answer">Runs <strong>multiple sub-pipelines in parallel</strong> on the same input data. Perfect for search result pages &mdash; get paginated results + total count + category filters in ONE database call instead of three. Each sub-pipeline gets the full input and produces independent output.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: $unwind with preserveNullAndEmptyArrays?</div>
+                    <div class="answer">By default, $unwind <strong>drops documents</strong> where the array is empty or missing. <code>preserveNullAndEmptyArrays: true</code> keeps those docs with the field set to null. Important when you don't want to lose data &mdash; e.g., patients without diagnosis codes should still appear in reports.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: $out vs $merge - which to use?</div>
+                    <div class="answer"><code>$out</code> replaces the entire target collection (destructive). <code>$merge</code> does upsert &mdash; update existing docs, insert new ones. <strong>Always prefer $merge</strong> in production. $merge also works with sharded collections and allows configuring whenMatched/whenNotMatched behavior.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Pipeline vs simple lookup - what's the difference?</div>
+                    <div class="answer">Simple lookup matches localField to foreignField (basic equality join). <strong>Pipeline lookup</strong> lets you add $match, $sort, $limit inside the join &mdash; e.g., "get only last 5 blood tests for this patient." Pipeline lookup is more flexible but slightly slower. Use it when you need filtered/sorted joins.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What happens when aggregation exceeds memory?</div>
+                    <div class="answer">Each stage has <strong>100MB RAM limit</strong> by default. Exceeded = error. Fix: (1) <code>allowDiskUse: true</code> to spill to disk. (2) $match early to reduce data. (3) $project to drop fields. Note: allowDiskUse is slower since it uses disk I/O. For production analytics, consider precomputing with $merge.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Write an aggregation for "top 5 doctors by patient count this month"</div>
+                    <div class="answer"><pre><code>db.patients.aggregate([
+  { $match: {
+      admitDate: {
+        $gte: ISODate("2024-12-01"),
+        $lt: ISODate("2025-01-01")
+      }
+  }},
+  { $group: { _id: "$doctorId", count: { $sum: 1 } } },
+  { $sort: { count: -1 } },
+  { $limit: 5 },
+  { $lookup: {
+      from: "doctors",
+      localField: "_id",
+      foreignField: "_id",
+      as: "doctor"
+  }},
+  { $unwind: "$doctor" },
+  { $project: {
+      name: "$doctor.name",
+      patientCount: "$count", _id: 0
+  }}
+])</code></pre></div>
                 </div>
             </div>
         </div>
