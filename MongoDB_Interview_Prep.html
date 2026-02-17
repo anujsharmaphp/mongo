@@ -82,7 +82,7 @@
         <p class="sub">Interview Guide</p>
         <nav>
             <a href="#concept-1" class="active">1. Fundamentals</a>
-            <a href="#concept-2" class="pending">2. Schema Design</a>
+            <a href="#concept-2">2. Schema Design</a>
             <a href="#concept-3" class="pending">3. Indexing</a>
             <a href="#concept-4" class="pending">4. Aggregation</a>
             <a href="#concept-5" class="pending">5. Sharding</a>
@@ -233,6 +233,204 @@ db.patients.deleteMany({ age: { $lt: 18 } })</code></pre>
                 <div class="q">
                     <div class="question">Q: BSON vs JSON &mdash; why not just store JSON?</div>
                     <div class="answer">BSON adds types (Date, Decimal128, ObjectId) that JSON lacks. Has length prefixes for O(1) field skipping. Faster encode/decode. Slightly larger on wire but optimized for traversal.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 2 -->
+        <div class="concept" id="concept-2">
+            <h2>2. Document Modeling & Schema Design</h2>
+            <span class="tag">Most Asked Topic</span>
+
+            <div class="point">
+                <strong>Golden Rule</strong>
+                <p>Design schema based on <strong>how your app reads data</strong>, not how data is related. Opposite of MySQL normalization.</p>
+            </div>
+
+            <div class="point">
+                <strong>Embedding vs Referencing</strong>
+                <ul>
+                    <li><strong>Embed</strong> = put related data inside the same document (denormalize)</li>
+                    <li><strong>Reference</strong> = store _id link to another collection (like foreign key)</li>
+                </ul>
+<pre><code>// EMBEDDED - patient with vitals inside
+{
+  _id: ObjectId("..."),
+  name: "Rajesh",
+  vitals: [
+    { date: "2024-01-10", bp: "140/90", sugar: 280 },
+    { date: "2024-01-11", bp: "130/85", sugar: 220 }
+  ]
+}
+
+// REFERENCED - vitals in separate collection
+// patients collection
+{ _id: ObjectId("p1"), name: "Rajesh" }
+
+// vitals collection
+{ _id: ObjectId("v1"), patientId: ObjectId("p1"), bp: "140/90" }
+{ _id: ObjectId("v2"), patientId: ObjectId("p1"), bp: "130/85" }</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>When to Embed (use most of the time)</strong>
+                <ul>
+                    <li>Data is read together &mdash; "give me patient + vitals in one query"</li>
+                    <li>1:1 relationship (user &rarr; profile)</li>
+                    <li>1:Few relationship (order &rarr; 5-10 items)</li>
+                    <li>Data doesn't grow unbounded</li>
+                    <li>Atomic updates needed on parent + child</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>When to Reference</strong>
+                <ul>
+                    <li>1:Many with unbounded growth (user &rarr; millions of logs)</li>
+                    <li>Many:Many relationship (students &harr; courses)</li>
+                    <li>Data accessed independently ("show me just the order, not user")</li>
+                    <li>Document would exceed 16MB</li>
+                    <li>Data shared across many parents</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Schema Design Patterns (important!)</strong>
+                <ul>
+                    <li><strong>Bucket Pattern</strong> &mdash; group time-series data into buckets (e.g., 1 doc = 1 hour of sensor readings)</li>
+                    <li><strong>Outlier Pattern</strong> &mdash; handle documents where arrays grow beyond normal (flag + overflow collection)</li>
+                    <li><strong>Computed Pattern</strong> &mdash; pre-calculate values (total, average) instead of computing on every read</li>
+                    <li><strong>Subset Pattern</strong> &mdash; embed only recent/frequent data, keep rest in separate collection</li>
+                    <li><strong>Extended Reference</strong> &mdash; copy frequently needed fields from referenced doc to avoid $lookup</li>
+                    <li><strong>Polymorphic Pattern</strong> &mdash; different doc shapes in same collection (sports cards, game cards, all in "products")</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Bucket Pattern Example (Healthcare)</strong>
+<pre><code>// Instead of 1 doc per vital reading (millions of docs)
+// Group into hourly buckets
+{
+  patientId: ObjectId("p1"),
+  date: ISODate("2024-01-10"),
+  hour: 14,
+  readings: [
+    { time: "14:00", bp: "140/90", temp: 98.6 },
+    { time: "14:15", bp: "138/88", temp: 98.4 },
+    { time: "14:30", bp: "135/85", temp: 98.5 }
+  ],
+  count: 3,
+  avgBp: "137/87"  // computed pattern combined
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Polymorphic Pattern Example (eCommerce)</strong>
+<pre><code>// Same "products" collection, different shapes
+// Sports card
+{
+  type: "sports_card",
+  name: "Mike Trout RC",
+  sport: "baseball",
+  year: 2011,
+  graded: true,
+  grade: "PSA 10"
+}
+// Game card
+{
+  type: "game_card",
+  name: "Black Lotus",
+  game: "MTG",
+  set: "Alpha",
+  rarity: "rare",
+  foil: false
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Anti-Patterns (avoid these)</strong>
+                <ul>
+                    <li><strong>Massive arrays</strong> &mdash; unbounded arrays slow down reads and hit 16MB limit</li>
+                    <li><strong>Unnecessary normalization</strong> &mdash; don't split data into 10 collections like MySQL</li>
+                    <li><strong>No indexes on referenced fields</strong> &mdash; $lookup without index = full collection scan</li>
+                    <li><strong>Storing blobs in document</strong> &mdash; use GridFS or S3 for files</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>$lookup (JOIN equivalent)</strong>
+<pre><code>// Get patient with their lab reports from separate collection
+db.patients.aggregate([
+  { $match: { name: "Rajesh" } },
+  { $lookup: {
+      from: "lab_reports",
+      localField: "_id",
+      foreignField: "patientId",
+      as: "labs"
+  }}
+])</code></pre>
+                <p>$lookup is expensive. If you need it frequently, consider embedding or extended reference pattern instead.</p>
+            </div>
+
+            <div class="point">
+                <strong>Schema Validation</strong>
+<pre><code>db.createCollection("patients", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["name", "age"],
+      properties: {
+        name: { bsonType: "string", description: "required" },
+        age:  { bsonType: "int", minimum: 0, maximum: 150 }
+      }
+    }
+  },
+  validationLevel: "strict",    // or "moderate"
+  validationAction: "error"     // or "warn"
+})</code></pre>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you design the schema for medical records?</div>
+                    <div class="answer">Used <strong>embedding</strong> for patient + encounter data (vitals, ICD codes, NLP entities) since they're always read together. Used <strong>bucket pattern</strong> for time-series vitals to reduce doc count. Used <strong>referencing</strong> for lab reports since they can be accessed independently and grow unbounded.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Embed or Reference? How do you decide?</div>
+                    <div class="answer">Ask 3 questions: (1) Is data read together? &rarr; embed. (2) Does it grow unbounded? &rarr; reference. (3) Is it shared by multiple parents? &rarr; reference. Default to embedding unless there's a reason not to. MongoDB is optimized for single-doc reads.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What schema pattern did you use for the eCommerce collectibles platform?</div>
+                    <div class="answer"><strong>Polymorphic pattern</strong> &mdash; sports cards, game cards, and collectibles all in one "products" collection with different field shapes. This enabled a single search index across all product types. Also used <strong>extended reference</strong> &mdash; copied seller name + rating into product doc to avoid $lookup on every product listing.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the Bucket Pattern and when to use it?</div>
+                    <div class="answer">Groups time-series data into buckets (e.g., 1 doc = 1 hour). Instead of millions of individual readings, you get thousands of bucket docs. Reduces index size, improves write performance. Used for patient vitals monitoring &mdash; each bucket holds readings for one hour with pre-computed averages.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How do you handle Many-to-Many in MongoDB?</div>
+                    <div class="answer">Two approaches: (1) <strong>Array of references</strong> in both sides &mdash; student has courseIds[], course has studentIds[]. (2) <strong>Junction collection</strong> for unbounded or with extra attributes &mdash; enrollment { studentId, courseId, grade, date }. Choose based on array growth.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: $lookup performance &mdash; is it like a SQL JOIN?</div>
+                    <div class="answer">Similar but <strong>much slower</strong>. $lookup does a full collection scan on "from" collection unless the foreignField is indexed. It doesn't use hash joins or merge joins. Best practice: (1) always index foreignField, (2) if $lookup is frequent, consider denormalizing with embedding or extended reference pattern.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is Schema Validation in MongoDB?</div>
+                    <div class="answer">MongoDB supports <strong>$jsonSchema</strong> validation on collections. Define required fields, types, min/max, enums. Set <code>validationLevel: "strict"</code> to enforce on all writes, or <code>"moderate"</code> to only validate new inserts. Set <code>validationAction: "error"</code> to reject or <code>"warn"</code> to just log.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What are common schema design anti-patterns?</div>
+                    <div class="answer">(1) <strong>Unbounded arrays</strong> &mdash; arrays that grow forever slow reads, hit 16MB. (2) <strong>Over-normalization</strong> &mdash; splitting into too many collections like SQL, causing excessive $lookups. (3) <strong>Bloated documents</strong> &mdash; embedding data that's rarely accessed. (4) <strong>No validation</strong> &mdash; flexible schema doesn't mean no rules, use $jsonSchema.</div>
                 </div>
             </div>
         </div>
