@@ -133,7 +133,7 @@
             <a href="#concept-7">7. Atlas & Cloud</a>
             <a href="#concept-8">8. Performance Tuning</a>
             <a href="#concept-9">9. Transactions</a>
-            <a href="#concept-10" class="pending">10. Security</a>
+            <a href="#concept-10">10. Security</a>
             <a href="#concept-11" class="pending">11. Kafka + MongoDB</a>
             <a href="#concept-12" class="pending">12. Mongo vs Elastic</a>
             <a href="#concept-13" class="pending">13. Project Scenarios</a>
@@ -1718,6 +1718,182 @@ try {
                 <div class="q">
                     <div class="question">Q: Can you create a collection inside a transaction?</div>
                     <div class="answer"><strong>No</strong> (before 4.4). Since MongoDB 4.4, you can implicitly create collections inside transactions. But you still <strong>cannot create indexes</strong> inside a transaction. Best practice: ensure collections exist before starting transactions. Use <code>db.createCollection()</code> during deployment/migration, not at runtime.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 10 -->
+        <div class="concept" id="concept-10">
+            <h2>10. Security</h2>
+            <span class="tag">Enterprise / Compliance</span>
+
+            <div class="point">
+                <strong>Security Layers (Defense in Depth)</strong>
+                <ul>
+                    <li><strong>Authentication</strong> &mdash; who are you? (SCRAM, x.509, LDAP, Kerberos)</li>
+                    <li><strong>Authorization</strong> &mdash; what can you do? (RBAC &mdash; Role-Based Access Control)</li>
+                    <li><strong>Encryption</strong> &mdash; protect data in transit (TLS) and at rest (AES-256)</li>
+                    <li><strong>Auditing</strong> &mdash; track who did what (Enterprise feature)</li>
+                    <li><strong>Network</strong> &mdash; IP whitelisting, VPC peering, private endpoints</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Authentication Methods</strong>
+                <ul>
+                    <li><strong>SCRAM-SHA-256</strong> &mdash; default. Username/password with salted challenge-response. Good for most apps.</li>
+                    <li><strong>x.509 Certificates</strong> &mdash; certificate-based auth. Used for inter-node communication in replica sets and for client auth.</li>
+                    <li><strong>LDAP</strong> &mdash; authenticate against Active Directory / LDAP server (Enterprise)</li>
+                    <li><strong>Kerberos</strong> &mdash; single sign-on for enterprise environments (Enterprise)</li>
+                </ul>
+<pre><code>// Create user with SCRAM authentication
+db.createUser({
+  user: "appUser",
+  pwd: "securePassword123",
+  roles: [
+    { role: "readWrite", db: "healthcare_db" },
+    { role: "read", db: "analytics_db" }
+  ]
+})
+
+// Enable authentication in mongod.conf
+// security:
+//   authorization: enabled</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Role-Based Access Control (RBAC)</strong>
+                <ul>
+                    <li><strong>read</strong> &mdash; read-only on a database</li>
+                    <li><strong>readWrite</strong> &mdash; read + write on a database</li>
+                    <li><strong>dbAdmin</strong> &mdash; index management, stats, compact</li>
+                    <li><strong>userAdmin</strong> &mdash; create/modify users and roles</li>
+                    <li><strong>clusterAdmin</strong> &mdash; manage replica sets, sharding</li>
+                    <li><strong>root</strong> &mdash; superuser (avoid in production)</li>
+                </ul>
+<pre><code>// Custom role: read + write on patients, read-only on audit
+db.createRole({
+  role: "healthcareAppRole",
+  privileges: [
+    { resource: { db: "healthcare_db", collection: "patients" },
+      actions: ["find", "insert", "update"] },
+    { resource: { db: "healthcare_db", collection: "audit_log" },
+      actions: ["find"] }
+  ],
+  roles: []
+})
+
+// Assign custom role to user
+db.createUser({
+  user: "apiService",
+  pwd: "secret",
+  roles: [{ role: "healthcareAppRole", db: "healthcare_db" }]
+})</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Encryption at Rest</strong>
+                <ul>
+                    <li>WiredTiger encrypts data files with <strong>AES-256-CBC</strong> (Enterprise)</li>
+                    <li>Atlas: encryption at rest <strong>enabled by default</strong> (AWS KMS / Azure Key Vault / GCP KMS)</li>
+                    <li>Protects against physical theft of disk / unauthorized file access</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Encryption in Transit (TLS/SSL)</strong>
+<pre><code>// mongod.conf - enable TLS
+net:
+  tls:
+    mode: requireTLS
+    certificateKeyFile: /etc/ssl/mongodb.pem
+    CAFile: /etc/ssl/ca.pem
+
+// Connection string with TLS
+mongodb://user:pass@host:27017/db?tls=true&tlsCAFile=/path/ca.pem</code></pre>
+                <p>Atlas: TLS <strong>always on</strong>, cannot be disabled.</p>
+            </div>
+
+            <div class="point">
+                <strong>Client-Side Field Level Encryption (CSFLE)</strong>
+                <p>Encrypt sensitive fields <strong>before</strong> they reach the server. Server never sees plaintext. Even DBA can't read encrypted fields.</p>
+<pre><code>// Fields encrypted client-side before sending to MongoDB
+{
+  name: "Rajesh",                     // plaintext
+  ssn: Binary("encrypted_data"),      // encrypted - server can't read
+  diagnosis: Binary("encrypted_data") // encrypted
+}
+
+// Two modes:
+// Deterministic: same input = same ciphertext (allows equality queries)
+// Random: same input = different ciphertext (more secure, no queries)</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Network Security</strong>
+                <ul>
+                    <li><strong>IP Whitelist</strong> &mdash; allow only known IPs (Atlas default)</li>
+                    <li><strong>VPC Peering</strong> &mdash; private connection between your VPC and Atlas (no public internet)</li>
+                    <li><strong>Private Endpoints</strong> &mdash; AWS PrivateLink / Azure Private Link for zero public exposure</li>
+                    <li><strong>bindIp</strong> &mdash; bind mongod to specific interface (never 0.0.0.0 in production)</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Auditing (Enterprise / Atlas)</strong>
+<pre><code>// mongod.conf - enable audit log
+auditLog:
+  destination: file
+  format: JSON
+  path: /var/log/mongodb/audit.json
+  filter: '{ atype: { $in: ["authCheck", "dropCollection", "createUser"] } }'
+
+// Tracks: authentication attempts, CRUD operations,
+// schema changes, user management, config changes</code></pre>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you secure MongoDB in healthcare (HIPAA)?</div>
+                    <div class="answer"><strong>1)</strong> TLS for all connections (encryption in transit). <strong>2)</strong> AES-256 encryption at rest via Atlas KMS. <strong>3)</strong> CSFLE for PII fields (SSN, diagnosis). <strong>4)</strong> RBAC &mdash; each microservice gets least-privilege role. <strong>5)</strong> VPC peering (no public internet). <strong>6)</strong> Audit logging for all data access. <strong>7)</strong> IP whitelist for Atlas cluster access.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is RBAC and how did you implement it?</div>
+                    <div class="answer">Role-Based Access Control &mdash; assign permissions via roles, not directly to users. Created <strong>custom roles</strong>: API service gets readWrite on patients but read-only on audit logs. Analytics service gets read-only everywhere. No service uses root. Principle of <strong>least privilege</strong> &mdash; each user/service gets minimum permissions needed.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Client-Side Field Level Encryption &mdash; why use it?</div>
+                    <div class="answer">Server <strong>never sees plaintext</strong> of sensitive data. Even if someone breaches the database or a DBA goes rogue, encrypted fields are unreadable. For healthcare: SSN, diagnosis codes, patient names encrypted client-side. Two modes: <strong>deterministic</strong> (allows equality queries on encrypted field) and <strong>random</strong> (most secure, no queries possible).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Encryption at rest vs in transit vs CSFLE &mdash; differences?</div>
+                    <div class="answer"><strong>At rest:</strong> encrypts data files on disk &mdash; protects against physical theft. <strong>In transit:</strong> TLS encrypts data between client and server &mdash; protects against network sniffing. <strong>CSFLE:</strong> encrypts specific fields before they leave the client &mdash; protects against server compromise, DBA access. All three together provide <strong>defense in depth</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to prevent unauthorized access in production?</div>
+                    <div class="answer"><strong>1)</strong> Enable <code>authorization: enabled</code> (never run without auth). <strong>2)</strong> Use strong passwords + SCRAM-SHA-256. <strong>3)</strong> IP whitelist (never allow 0.0.0.0). <strong>4)</strong> VPC peering / private endpoints. <strong>5)</strong> Disable unused ports. <strong>6)</strong> Don't expose mongod to public internet. <strong>7)</strong> Regular rotation of credentials.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the security checklist for production MongoDB?</div>
+                    <div class="answer"><strong>1)</strong> Enable auth. <strong>2)</strong> Enable TLS. <strong>3)</strong> Use RBAC with custom roles. <strong>4)</strong> Enable encryption at rest. <strong>5)</strong> Network restriction (VPC/IP whitelist). <strong>6)</strong> Enable audit log. <strong>7)</strong> Disable HTTP interface and REST API. <strong>8)</strong> Keep MongoDB version updated. <strong>9)</strong> Use CSFLE for PII. <strong>10)</strong> Monitor and alert on suspicious access patterns.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: VPC Peering vs Private Endpoint?</div>
+                    <div class="answer"><strong>VPC Peering:</strong> connects two VPCs &mdash; all traffic stays in private network. Simple setup but CIDR blocks can't overlap. <strong>Private Endpoint:</strong> (AWS PrivateLink) creates an endpoint in your VPC that routes to Atlas via AWS backbone. More secure &mdash; one-directional, no CIDR constraints. We used Private Endpoint for healthcare to ensure <strong>zero public internet exposure</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Can MongoDB run without authentication?</div>
+                    <div class="answer">Yes, by default mongod starts <strong>without auth</strong> (localhost exception). This is a <strong>critical security risk</strong>. In 2017, thousands of MongoDB instances were ransomed because they were exposed without auth. Always enable <code>security.authorization: enabled</code> in production. Atlas enforces auth by default &mdash; cannot disable.</div>
                 </div>
             </div>
         </div>
