@@ -89,7 +89,7 @@
             <a href="#concept-6">6. Replication</a>
             <a href="#concept-7">7. Atlas & Cloud</a>
             <a href="#concept-8">8. Performance Tuning</a>
-            <a href="#concept-9" class="pending">9. Transactions</a>
+            <a href="#concept-9">9. Transactions</a>
             <a href="#concept-10" class="pending">10. Security</a>
             <a href="#concept-11" class="pending">11. Kafka + MongoDB</a>
             <a href="#concept-12" class="pending">12. Mongo vs Elastic</a>
@@ -1504,6 +1504,177 @@ db.patients.find({ status: "active" })
                 <div class="q">
                     <div class="question">Q: snappy vs zstd compression &mdash; which to choose?</div>
                     <div class="answer"><strong>snappy</strong> (default): faster compression/decompression, ~3-4x compression ratio. Good for balanced workloads. <strong>zstd</strong>: better compression (~5-7x), slightly more CPU. Choose zstd for storage-heavy, read-heavy workloads where disk I/O is the bottleneck. For our healthcare system with large text documents, zstd saved ~40% storage vs snappy.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 9 -->
+        <div class="concept" id="concept-9">
+            <h2>9. Transactions</h2>
+            <span class="tag">ACID Compliance</span>
+
+            <div class="point">
+                <strong>Single Document = Atomic (always)</strong>
+                <p>MongoDB guarantees <strong>atomic writes on a single document</strong> &mdash; even for embedded arrays/subdocuments. No transaction needed for single-doc operations. This covers 80%+ of use cases.</p>
+            </div>
+
+            <div class="point">
+                <strong>Multi-Document Transactions (4.0+)</strong>
+                <p>When you need atomicity across <strong>multiple documents or collections</strong>. All-or-nothing &mdash; either all operations commit or all roll back.</p>
+<pre><code>const session = client.startSession();
+try {
+  session.startTransaction({
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" }
+  });
+
+  // Debit from patient wallet
+  await db.wallets.updateOne(
+    { patientId: "p1" },
+    { $inc: { balance: -500 } },
+    { session }
+  );
+
+  // Create payment record
+  await db.payments.insertOne(
+    { patientId: "p1", amount: 500, type: "consultation" },
+    { session }
+  );
+
+  // Update appointment status
+  await db.appointments.updateOne(
+    { _id: appointmentId },
+    { $set: { paymentStatus: "paid" } },
+    { session }
+  );
+
+  await session.commitTransaction();
+} catch (error) {
+  await session.abortTransaction();
+  throw error;
+} finally {
+  session.endSession();
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Transaction Requirements</strong>
+                <ul>
+                    <li>Requires <strong>replica set</strong> (or sharded cluster 4.2+)</li>
+                    <li>Default timeout: <strong>60 seconds</strong> (maxTransactionLockRequestTimeoutMillis)</li>
+                    <li>Operations must use the same <strong>session</strong> object</li>
+                    <li>Best practice: use <code>readConcern: "snapshot"</code> + <code>writeConcern: "majority"</code></li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>withTransaction() Helper (recommended)</strong>
+                <p>Handles retry logic automatically for transient errors and unknown commit results.</p>
+<pre><code>const session = client.startSession();
+try {
+  await session.withTransaction(async () => {
+    await db.wallets.updateOne(
+      { patientId: "p1" },
+      { $inc: { balance: -500 } },
+      { session }
+    );
+    await db.payments.insertOne(
+      { patientId: "p1", amount: 500 },
+      { session }
+    );
+  }, {
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" }
+  });
+  // Auto-committed if no errors
+} finally {
+  session.endSession();
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>ACID Properties in MongoDB</strong>
+                <ul>
+                    <li><strong>Atomicity</strong> &mdash; all ops in transaction succeed or all roll back</li>
+                    <li><strong>Consistency</strong> &mdash; data moves from one valid state to another</li>
+                    <li><strong>Isolation</strong> &mdash; snapshot isolation &mdash; transaction sees consistent snapshot of data</li>
+                    <li><strong>Durability</strong> &mdash; with <code>w: "majority", j: true</code>, committed data survives failures</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Transaction Limitations</strong>
+                <ul>
+                    <li><strong>Performance</strong> &mdash; slower than single-doc writes (~2-5x overhead)</li>
+                    <li><strong>60 second timeout</strong> &mdash; long-running transactions are killed</li>
+                    <li>Cannot create collections/indexes inside a transaction</li>
+                    <li>Cross-shard transactions (4.2+) are even slower &mdash; need two-phase commit</li>
+                    <li><strong>Write conflicts</strong> &mdash; if two transactions modify same doc, one retries or aborts</li>
+                    <li>Oplog entry limit: 16MB per transaction</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>When to Use vs When to Avoid</strong>
+                <ul>
+                    <li><strong>Use:</strong> Financial transfers, payment + inventory update, multi-collection consistency</li>
+                    <li><strong>Avoid:</strong> If you can model as single document (embed instead). Transactions are a safety net, not a design pattern.</li>
+                    <li><strong>Rule:</strong> If you need transactions frequently, rethink your schema &mdash; maybe data should be embedded</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Retryable Writes &amp; Reads</strong>
+                <ul>
+                    <li><strong>retryWrites=true</strong> (default in drivers) &mdash; auto-retries once on network errors</li>
+                    <li>Works for insertOne, updateOne, deleteOne, findOneAndUpdate</li>
+                    <li>Does NOT work for: insertMany(ordered), updateMany, deleteMany</li>
+                    <li><strong>retryReads=true</strong> &mdash; auto-retries read operations on transient failures</li>
+                </ul>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: Does MongoDB support ACID transactions?</div>
+                    <div class="answer"><strong>Yes, fully ACID.</strong> Single-doc operations are always atomic (since v1). Multi-document transactions added in <strong>4.0</strong> (replica sets) and <strong>4.2</strong> (sharded clusters). Use snapshot read concern + majority write concern for full ACID guarantees across multiple documents/collections.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: When did you use transactions in your projects?</div>
+                    <div class="answer">Healthcare payment flow: debit patient wallet + create payment record + update appointment status. All three must succeed or none. Also used for <strong>inventory management</strong> in eCommerce &mdash; decrement stock + create order must be atomic to prevent overselling. Both cases involved multiple collections.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Why not just use transactions everywhere like SQL?</div>
+                    <div class="answer">Transactions add <strong>~2-5x overhead</strong> (locking, snapshot management, two-phase commit on shards). MongoDB is designed for <strong>single-document atomicity</strong> &mdash; embed related data to avoid transactions. Only use transactions when data genuinely spans multiple documents/collections. If you need transactions for every write, your schema needs redesign.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is snapshot isolation?</div>
+                    <div class="answer">Transaction sees a <strong>consistent snapshot</strong> of data at the time it started. Other concurrent writes are invisible to the transaction. This prevents dirty reads and non-repeatable reads. Uses <code>readConcern: "snapshot"</code>. If another transaction modifies the same document, one gets a <strong>write conflict</strong> error and must retry.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: withTransaction() vs manual startTransaction &mdash; which to use?</div>
+                    <div class="answer"><strong>Always use withTransaction()</strong> in production. It automatically handles: (1) <strong>TransientTransactionError</strong> &mdash; retries the entire transaction. (2) <strong>UnknownTransactionCommitResult</strong> &mdash; retries the commit. Manual start/commit doesn't handle these. You'd have to write retry loops yourself.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What happens during write conflict?</div>
+                    <div class="answer">If Transaction A and Transaction B both try to modify the same document, <strong>first writer wins</strong>. Second transaction gets a <strong>WriteConflict</strong> error. With <code>withTransaction()</code>, it auto-retries. In manual mode, you must catch the error and retry. This is MongoDB's <strong>optimistic concurrency control</strong> &mdash; no locks held until write.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Transactions on sharded cluster &mdash; any difference?</div>
+                    <div class="answer">Added in 4.2. Uses <strong>two-phase commit</strong> protocol across shards. Slower than single-shard transactions due to cross-shard coordination. Best practice: design shard key so most transactions target a <strong>single shard</strong> (e.g., shard by userId so all user-related ops hit one shard). Cross-shard transactions should be the exception.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Can you create a collection inside a transaction?</div>
+                    <div class="answer"><strong>No</strong> (before 4.4). Since MongoDB 4.4, you can implicitly create collections inside transactions. But you still <strong>cannot create indexes</strong> inside a transaction. Best practice: ensure collections exist before starting transactions. Use <code>db.createCollection()</code> during deployment/migration, not at runtime.</div>
                 </div>
             </div>
         </div>
