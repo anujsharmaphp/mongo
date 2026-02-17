@@ -83,7 +83,7 @@
         <nav>
             <a href="#concept-1" class="active">1. Fundamentals</a>
             <a href="#concept-2">2. Schema Design</a>
-            <a href="#concept-3" class="pending">3. Indexing</a>
+            <a href="#concept-3">3. Indexing</a>
             <a href="#concept-4" class="pending">4. Aggregation</a>
             <a href="#concept-5" class="pending">5. Sharding</a>
             <a href="#concept-6" class="pending">6. Replication</a>
@@ -431,6 +431,190 @@ db.patients.aggregate([
                 <div class="q">
                     <div class="question">Q: What are common schema design anti-patterns?</div>
                     <div class="answer">(1) <strong>Unbounded arrays</strong> &mdash; arrays that grow forever slow reads, hit 16MB. (2) <strong>Over-normalization</strong> &mdash; splitting into too many collections like SQL, causing excessive $lookups. (3) <strong>Bloated documents</strong> &mdash; embedding data that's rarely accessed. (4) <strong>No validation</strong> &mdash; flexible schema doesn't mean no rules, use $jsonSchema.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 3 -->
+        <div class="concept" id="concept-3">
+            <h2>3. Indexing Deep Dive</h2>
+            <span class="tag">Performance Critical</span>
+
+            <div class="point">
+                <strong>Why Indexes?</strong>
+                <p>Without index = <strong>collection scan</strong> (reads every document). With index = B-Tree lookup, jumps directly to matching docs. Like a book's table of contents.</p>
+            </div>
+
+            <div class="point">
+                <strong>Default Index</strong>
+                <p>Every collection has <code>_id</code> index automatically. Cannot be dropped.</p>
+            </div>
+
+            <div class="point">
+                <strong>Index Types</strong>
+                <ul>
+                    <li><strong>Single Field</strong> &mdash; index on one field</li>
+                    <li><strong>Compound</strong> &mdash; index on multiple fields (order matters!)</li>
+                    <li><strong>Multikey</strong> &mdash; auto-created when indexing array fields</li>
+                    <li><strong>Text</strong> &mdash; full-text search on string fields</li>
+                    <li><strong>Hashed</strong> &mdash; for hash-based sharding</li>
+                    <li><strong>Geospatial</strong> &mdash; 2d / 2dsphere for location queries</li>
+                    <li><strong>Wildcard</strong> &mdash; index on dynamic/unknown field names</li>
+                    <li><strong>TTL</strong> &mdash; auto-delete docs after a time period</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Creating Indexes</strong>
+<pre><code>// Single field
+db.patients.createIndex({ name: 1 })          // 1 = ascending
+db.patients.createIndex({ age: -1 })          // -1 = descending
+
+// Compound index (order matters!)
+db.patients.createIndex({ status: 1, age: -1 })
+
+// Unique index
+db.patients.createIndex({ email: 1 }, { unique: true })
+
+// TTL index - auto-delete after 30 days
+db.sessions.createIndex({ createdAt: 1 }, { expireAfterSeconds: 2592000 })
+
+// Text index
+db.products.createIndex({ name: "text", description: "text" })
+
+// Partial index - only index active patients
+db.patients.createIndex(
+  { name: 1 },
+  { partialFilterExpression: { status: "active" } }
+)
+
+// Wildcard index - for dynamic fields
+db.products.createIndex({ "attributes.$**": 1 })</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Compound Index - ESR Rule (Equality, Sort, Range)</strong>
+                <p>Order fields in compound index as: <strong>Equality</strong> first, then <strong>Sort</strong>, then <strong>Range</strong>.</p>
+<pre><code>// Query: find active patients aged > 30, sorted by name
+db.patients.find({ status: "active", age: { $gt: 30 } }).sort({ name: 1 })
+
+// Best index (ESR rule):
+db.patients.createIndex({ status: 1, name: 1, age: 1 })
+//                        Equality     Sort     Range</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Covered Query (fastest possible)</strong>
+                <p>Query answered entirely from index, no need to fetch document. All queried + returned fields must be in the index.</p>
+<pre><code>// Index
+db.patients.createIndex({ status: 1, name: 1 })
+
+// Covered query - returns only indexed fields, _id excluded
+db.patients.find(
+  { status: "active" },
+  { name: 1, _id: 0 }
+)
+// explain() will show: totalDocsExamined: 0</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>explain() - How to Check Index Usage</strong>
+<pre><code>db.patients.find({ name: "Rajesh" }).explain("executionStats")
+
+// Key things to check:
+// winningPlan.stage: "IXSCAN" = using index, "COLLSCAN" = bad!
+// totalKeysExamined: how many index entries scanned
+// totalDocsExamined: how many docs fetched
+// executionTimeMillis: query time
+
+// Goal: keysExamined ≈ docsExamined ≈ nReturned</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Index Properties</strong>
+                <ul>
+                    <li><strong>Unique</strong> &mdash; no duplicate values allowed</li>
+                    <li><strong>Sparse</strong> &mdash; only index docs that have the field (skip nulls)</li>
+                    <li><strong>Partial</strong> &mdash; index only docs matching a filter (more flexible than sparse)</li>
+                    <li><strong>TTL</strong> &mdash; auto-expire documents after X seconds</li>
+                    <li><strong>Hidden</strong> &mdash; exists but not used by planner (for testing before dropping)</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Multikey Index (arrays)</strong>
+<pre><code>// Document
+{ name: "Rajesh", codes: ["E11", "I10", "M19"] }
+
+// Index on array field - MongoDB creates index entry for EACH element
+db.patients.createIndex({ codes: 1 })
+
+// Now this is fast:
+db.patients.find({ codes: "E11" })
+
+// Limitation: compound index can have only ONE array field</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Index Costs (trade-offs)</strong>
+                <ul>
+                    <li>Each index <strong>slows down writes</strong> &mdash; every insert/update must update all indexes</li>
+                    <li>Indexes use <strong>RAM</strong> &mdash; working set should fit in memory</li>
+                    <li>Too many indexes = slow writes + wasted memory</li>
+                    <li>Rule: max <strong>5-10 indexes</strong> per collection for write-heavy workloads</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Manage Indexes</strong>
+<pre><code>db.patients.getIndexes()                    // list all
+db.patients.dropIndex("name_1")             // drop by name
+db.patients.dropIndexes()                   // drop all except _id
+db.patients.hideIndex("name_1")             // hide (test before drop)
+db.patients.unhideIndex("name_1")           // unhide</code></pre>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you optimize query performance for healthcare data?</div>
+                    <div class="answer">Used <strong>compound indexes</strong> following ESR rule. For the most common query (find patients by status + date range sorted by name), created index <code>{ status: 1, name: 1, admitDate: 1 }</code>. Used <strong>partial indexes</strong> to only index active records, saving 60% index memory. Used <strong>explain()</strong> to verify IXSCAN and minimize docsExamined.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is the ESR rule?</div>
+                    <div class="answer">Order compound index fields as: <strong>Equality</strong> (exact match fields first), <strong>Sort</strong> (sort fields next), <strong>Range</strong> ($gt, $lt, $in last). This lets MongoDB traverse the index optimally &mdash; narrow by equality, walk in sort order, then filter range.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is a Covered Query?</div>
+                    <div class="answer">A query answered <strong>entirely from the index</strong> without touching documents. All query conditions AND projected fields must be in the index. Fastest possible query. In explain(), <code>totalDocsExamined: 0</code>. Must exclude _id with <code>{ _id: 0 }</code> unless _id is part of the index.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: TTL Index - how did you use it?</div>
+                    <div class="answer">Used TTL index on session and temporary token collections to <strong>auto-delete expired docs</strong>. <code>createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 })</code> deletes docs 24 hours after creation. MongoDB background thread checks every 60 seconds. No cron job needed.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Multikey index limitation?</div>
+                    <div class="answer">MongoDB creates one index entry <strong>per array element</strong>. Limitation: a compound index can have <strong>at most one array field</strong>. If both fields are arrays, MongoDB rejects the index (Cartesian product too large). For the medical codes array at CorroHealth, we index <code>{ codes: 1 }</code> to quickly find patients by ICD code.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How many indexes is too many?</div>
+                    <div class="answer">Each index slows writes and uses RAM. Rule of thumb: <strong>5-10 indexes</strong> for write-heavy, up to 15-20 for read-heavy. Monitor with <code>db.collection.stats()</code> &mdash; check <code>totalIndexSize</code> vs available RAM. If working set doesn't fit in memory, performance degrades sharply.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Partial vs Sparse index?</div>
+                    <div class="answer"><strong>Sparse</strong> only indexes docs where the field exists (skips null/missing). <strong>Partial</strong> is more flexible &mdash; index docs matching any filter expression like <code>{ status: "active" }</code>. Partial is preferred. Example: index only active patients saves 70% space if 70% of records are archived.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to safely remove an unused index in production?</div>
+                    <div class="answer">Step 1: <code>hideIndex()</code> &mdash; makes planner ignore it without dropping. Step 2: Monitor for a week &mdash; if no performance regression, it's safe. Step 3: <code>dropIndex()</code>. Never drop directly in production &mdash; hiding is reversible, dropping is not.</div>
                 </div>
             </div>
         </div>
