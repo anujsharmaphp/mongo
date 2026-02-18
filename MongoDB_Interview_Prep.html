@@ -134,9 +134,9 @@
             <a href="#concept-8">8. Performance Tuning</a>
             <a href="#concept-9">9. Transactions</a>
             <a href="#concept-10">10. Security</a>
-            <a href="#concept-11" class="pending">11. Kafka + MongoDB</a>
-            <a href="#concept-12" class="pending">12. Mongo vs Elastic</a>
-            <a href="#concept-13" class="pending">13. Project Scenarios</a>
+            <a href="#concept-11">11. Kafka + MongoDB</a>
+            <a href="#concept-12">12. Mongo vs Elastic</a>
+            <a href="#concept-13">13. Project Scenarios</a>
         </nav>
     </aside>
 
@@ -1894,6 +1894,459 @@ auditLog:
                 <div class="q">
                     <div class="question">Q: Can MongoDB run without authentication?</div>
                     <div class="answer">Yes, by default mongod starts <strong>without auth</strong> (localhost exception). This is a <strong>critical security risk</strong>. In 2017, thousands of MongoDB instances were ransomed because they were exposed without auth. Always enable <code>security.authorization: enabled</code> in production. Atlas enforces auth by default &mdash; cannot disable.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 11 -->
+        <div class="concept" id="concept-11">
+            <h2>11. Kafka + MongoDB</h2>
+            <span class="tag">Event-Driven Architecture</span>
+
+            <div class="point">
+                <strong>Why Kafka + MongoDB?</strong>
+                <p>Kafka = distributed event streaming. MongoDB = flexible document store. Together: <strong>event-driven microservices</strong> where Kafka moves data between services and MongoDB stores it. Decouples producers from consumers.</p>
+            </div>
+
+            <div class="point">
+                <strong>Common Patterns</strong>
+                <ul>
+                    <li><strong>CDC (Change Data Capture):</strong> MongoDB Change Streams push events to Kafka topics. Any change in MongoDB automatically flows to downstream consumers.</li>
+                    <li><strong>Event Sourcing:</strong> Kafka stores all events as source of truth. MongoDB stores current state (materialized view).</li>
+                    <li><strong>CQRS:</strong> Write to MongoDB via Kafka commands. Read from MongoDB directly. Separate write and read paths.</li>
+                    <li><strong>Data Pipeline:</strong> Kafka ingests from multiple sources &rarr; transforms &rarr; sinks into MongoDB for querying.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>MongoDB Kafka Connector (Source)</strong>
+                <p>Reads Change Streams from MongoDB and publishes to Kafka topics automatically.</p>
+<pre><code>// MongoDB Source Connector config
+{
+  "name": "mongo-source",
+  "config": {
+    "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+    "connection.uri": "mongodb+srv://user:pass@cluster.mongodb.net",
+    "database": "healthcare_db",
+    "collection": "patients",
+    "pipeline": "[{\"$match\": {\"operationType\": {\"$in\": [\"insert\", \"update\"]}}}]",
+    "publish.full.document.only": true,
+    "topic.prefix": "mongo"
+  }
+}
+// Every insert/update on patients → Kafka topic "mongo.healthcare_db.patients"</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>MongoDB Kafka Connector (Sink)</strong>
+                <p>Consumes from Kafka topics and writes to MongoDB collections.</p>
+<pre><code>// MongoDB Sink Connector config
+{
+  "name": "mongo-sink",
+  "config": {
+    "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
+    "connection.uri": "mongodb+srv://user:pass@cluster.mongodb.net",
+    "database": "analytics_db",
+    "collection": "events",
+    "topics": "user-clicks,page-views,orders",
+    "writemodel.strategy": "com.mongodb.kafka.connect.sink.writemodel.strategy.UpsertAsPartOfConditionStrategy",
+    "document.id.strategy": "com.mongodb.kafka.connect.sink.processor.id.strategy.ProvidedInKeyStrategy"
+  }
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Manual Integration (Node.js)</strong>
+<pre><code>// Producer: Push MongoDB changes to Kafka
+const changeStream = db.collection("orders").watch();
+changeStream.on("change", async (event) => {
+  await producer.send({
+    topic: "order-events",
+    messages: [{
+      key: event.documentKey._id.toString(),
+      value: JSON.stringify(event.fullDocument)
+    }]
+  });
+});
+
+// Consumer: Read from Kafka, write to MongoDB
+await consumer.subscribe({ topic: "order-events" });
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    const order = JSON.parse(message.value);
+    await db.collection("order_analytics").updateOne(
+      { _id: order._id },
+      { $set: order },
+      { upsert: true }
+    );
+  }
+});</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Key Kafka Concepts</strong>
+                <ul>
+                    <li><strong>Topic:</strong> Named stream of events (like a collection)</li>
+                    <li><strong>Partition:</strong> Topic split for parallelism. Order guaranteed within partition.</li>
+                    <li><strong>Consumer Group:</strong> Multiple consumers share work. Each partition read by one consumer in group.</li>
+                    <li><strong>Offset:</strong> Position in partition. Consumer tracks where it is. Can replay from any offset.</li>
+                    <li><strong>At-least-once:</strong> Default delivery. Handle duplicates with idempotent writes (upsert in MongoDB).</li>
+                </ul>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: How did you use Kafka with MongoDB in your projects?</div>
+                    <div class="answer"><strong>eCommerce (Beckett):</strong> Kafka ingested real-time price updates from multiple vendors. Consumers processed and wrote to MongoDB for the product catalog. Change Streams on order collection pushed events to Kafka for inventory sync across 5 storefronts. <strong>Healthcare:</strong> Medical records ingested via Kafka, NLP service consumed and wrote coded results back to MongoDB.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Change Streams vs Kafka Connector &mdash; when to use which?</div>
+                    <div class="answer"><strong>Change Streams:</strong> Use when your app directly needs to react to DB changes (cache invalidation, notifications). Runs in your app process. <strong>Kafka Connector:</strong> Use for system-to-system data flow, decoupled architecture, replay capability. Managed by Kafka Connect framework, no custom code needed. We used Connector for cross-service sync, Change Streams for real-time UI updates.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to handle duplicate messages from Kafka?</div>
+                    <div class="answer">Kafka guarantees <strong>at-least-once</strong> delivery by default. Duplicates happen on retries. Solution: make MongoDB writes <strong>idempotent</strong>. Use <code>updateOne with upsert</code> instead of insertOne. Or use Kafka message key as MongoDB <code>_id</code> &mdash; duplicate inserts fail gracefully. We used this pattern for all event consumers in the collectibles platform.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to guarantee ordering in Kafka + MongoDB?</div>
+                    <div class="answer">Kafka guarantees order <strong>within a partition</strong>. Use the MongoDB document <code>_id</code> as Kafka message key &mdash; all events for same document go to same partition, processed in order. For our order processing: orderId as key ensured all events for one order (created → paid → shipped) were processed sequentially.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What happens if Kafka consumer crashes mid-processing?</div>
+                    <div class="answer">Consumer offset is committed <strong>after processing</strong>. If crash before commit, Kafka re-delivers the message on restart (at-least-once). With MongoDB upsert, re-processing is safe. For critical flows: use Kafka transactions + MongoDB transactions together to ensure exactly-once semantics (more complex, use only when needed).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: CDC pattern &mdash; explain with a real example.</div>
+                    <div class="answer"><strong>CDC (Change Data Capture):</strong> Capture every change in source DB and propagate. In our healthcare system: when a patient record was updated in MongoDB, Change Stream captured it → published to Kafka topic → analytics service consumed and updated dashboards → notification service sent alerts to care team. Source system didn't need to know about consumers. Fully decoupled.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to scale Kafka consumers reading into MongoDB?</div>
+                    <div class="answer">Increase Kafka partitions for the topic, then add consumers to the consumer group (max = partition count). Each consumer writes to MongoDB independently. Use <strong>bulkWrite</strong> in consumer for batching. For our clickstream pipeline: 12 partitions, 12 consumers, each bulk-writing 1000 events to MongoDB per batch. Handled 50K events/sec.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 12 -->
+        <div class="concept" id="concept-12">
+            <h2>12. MongoDB vs Elasticsearch</h2>
+            <span class="tag">Technology Comparison</span>
+
+            <div class="point">
+                <strong>Core Difference</strong>
+                <ul>
+                    <li><strong>MongoDB:</strong> General-purpose document database. Primary data store. ACID transactions. Rich query language (MQL). Best for CRUD + aggregation.</li>
+                    <li><strong>Elasticsearch:</strong> Search &amp; analytics engine (Lucene-based). Inverted index. Best for full-text search, log analytics, faceted search. Not ideal as primary data store.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>When to Use MongoDB</strong>
+                <ul>
+                    <li>Primary database for application data</li>
+                    <li>Complex queries, joins ($lookup), aggregations</li>
+                    <li>ACID transactions across documents</li>
+                    <li>Flexible schema with validation</li>
+                    <li>Real-time CRUD operations</li>
+                    <li>Sharding for horizontal scale</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>When to Use Elasticsearch</strong>
+                <ul>
+                    <li>Full-text search with relevance scoring</li>
+                    <li>Log aggregation &amp; analytics (ELK stack)</li>
+                    <li>Autocomplete, fuzzy matching, synonyms</li>
+                    <li>Faceted search (filters with counts)</li>
+                    <li>Geo-spatial search at scale</li>
+                    <li>Near real-time analytics dashboards</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Side-by-Side Comparison</strong>
+<pre><code>Feature          | MongoDB              | Elasticsearch
+-----------------+----------------------+---------------------
+Data Model       | BSON documents       | JSON documents
+Query Language   | MQL + Aggregation    | Query DSL (JSON)
+Indexing         | B-Tree, Compound     | Inverted Index
+Transactions     | Full ACID (4.0+)     | No transactions
+Joins            | $lookup              | No native joins
+Full-Text Search | Atlas Search / text  | Core strength
+Scoring/Ranking  | Basic                | Advanced (BM25, TF-IDF)
+Sharding         | Native               | Native
+Replication      | Replica Sets         | Primary/Replica shards
+Consistency      | Strong (primary)     | Eventually consistent
+Use Case         | Primary DB, CRUD     | Search, Analytics</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Using Both Together (Common Pattern)</strong>
+<pre><code>// Architecture: MongoDB (source of truth) + ES (search layer)
+// 1. App writes to MongoDB
+await db.collection("products").insertOne(product);
+
+// 2. Sync to Elasticsearch (via Kafka or Change Streams)
+changeStream.on("change", async (event) => {
+  await esClient.index({
+    index: "products",
+    id: event.documentKey._id.toString(),
+    body: event.fullDocument
+  });
+});
+
+// 3. Search queries go to ES
+const results = await esClient.search({
+  index: "products",
+  body: { query: { multi_match: { query: "rare vintage card", fields: ["title", "description"] } } }
+});
+
+// 4. Detail/write queries go to MongoDB
+const product = await db.collection("products").findOne({ _id: id });</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Atlas Search vs Elasticsearch</strong>
+                <ul>
+                    <li><strong>Atlas Search:</strong> Built into MongoDB Atlas. Lucene-based. No separate cluster. Use <code>$search</code> in aggregation pipeline. Simpler ops. Good for 80% of search needs.</li>
+                    <li><strong>Elasticsearch:</strong> Separate cluster to manage. More powerful for complex scoring, analytics, log aggregation. Better for dedicated search-heavy workloads.</li>
+                    <li><strong>Rule:</strong> If search is secondary feature → Atlas Search. If search IS the product → Elasticsearch.</li>
+                </ul>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: Why did you use both MongoDB and Elasticsearch in Beckett?</div>
+                    <div class="answer">MongoDB was <strong>source of truth</strong> for product catalog (10M+ cards), orders, user data &mdash; needed ACID transactions for purchases. Elasticsearch powered <strong>search</strong>: autocomplete on card names, faceted filtering (year, sport, brand, price range), relevance scoring. Users searched in ES, then fetched full product details from MongoDB. Kafka synced data between them.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Can MongoDB replace Elasticsearch entirely?</div>
+                    <div class="answer">For <strong>basic search</strong>: yes, with Atlas Search or text indexes. For <strong>advanced use cases</strong> (complex relevance tuning, custom analyzers, synonyms, log analytics, Kibana dashboards): no. MongoDB is a database first, search second. Elasticsearch is search first. In healthcare, we used Atlas Search for patient lookup &mdash; sufficient. In eCommerce, we needed ES for full-featured product search.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to keep MongoDB and Elasticsearch in sync?</div>
+                    <div class="answer"><strong>Option 1:</strong> MongoDB Kafka Source Connector → Kafka → ES Sink Connector (recommended, decoupled). <strong>Option 2:</strong> Change Streams → custom code writes to ES. <strong>Option 3:</strong> Dual-write in app code (risky &mdash; if ES write fails, data inconsistent). We used Option 1 with Kafka. Lag was under 500ms. For conflict resolution: MongoDB is always source of truth, ES is rebuilt from MongoDB if needed.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Inverted index vs B-Tree index &mdash; difference?</div>
+                    <div class="answer"><strong>B-Tree (MongoDB):</strong> Stores values in sorted tree. Great for exact match, range queries, sorting. O(log n) lookup. <strong>Inverted Index (ES):</strong> Maps every term to list of documents containing it. Great for "find all docs containing word X". O(1) for term lookup. That's why ES is faster for text search but MongoDB is faster for exact field queries and range scans.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Performance comparison for typical operations?</div>
+                    <div class="answer"><strong>CRUD by _id:</strong> MongoDB faster (B-Tree direct lookup). <strong>Full-text search:</strong> ES much faster (inverted index optimized). <strong>Aggregation:</strong> Both capable, MongoDB better for complex pipelines with $lookup. ES better for metric aggregations (avg, percentile). <strong>Write speed:</strong> MongoDB faster (ES needs to update inverted index). <strong>Bulk analytics:</strong> ES wins with Kibana integration.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What is eventual consistency in ES and how does it affect architecture?</div>
+                    <div class="answer">ES has a <strong>refresh interval</strong> (default 1 second). New documents aren't searchable until refreshed. This means: write to ES → search immediately → may not find it. For our eCommerce: after adding a product, we showed a success page from MongoDB data (consistent), not from ES search results. Search results caught up within 1 second. Design for this lag.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: When would you NOT use Elasticsearch?</div>
+                    <div class="answer"><strong>1)</strong> As primary data store (no ACID, data loss risk). <strong>2)</strong> When you need transactions. <strong>3)</strong> Simple CRUD apps without search needs. <strong>4)</strong> When team doesn't have ES expertise (operational overhead is high). <strong>5)</strong> Cost-sensitive projects (ES clusters are expensive). In these cases, MongoDB alone with text indexes or Atlas Search is sufficient.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 13 -->
+        <div class="concept" id="concept-13">
+            <h2>13. Project Scenarios</h2>
+            <span class="tag">Real-World Application</span>
+
+            <div class="point">
+                <strong>Scenario 1: Healthcare Medical Coding Platform</strong>
+                <p><strong>Problem:</strong> Process 100K+ clinical documents daily, extract medical codes (ICD-10, CPT) using NLP, store results for auditors to review.</p>
+<pre><code>// Architecture:
+// Ingestion → Kafka → NLP Service → MongoDB → Dashboard
+
+// Patient document schema
+{
+  _id: ObjectId,
+  mrn: "MRN-12345",
+  documents: [{
+    type: "progress_note",       // polymorphic
+    content: "Patient presents with...",
+    receivedAt: ISODate,
+    nlpResults: {
+      codes: [
+        { code: "E11.9", desc: "Type 2 diabetes", confidence: 0.95 },
+        { code: "I10", desc: "Hypertension", confidence: 0.87 }
+      ],
+      processedAt: ISODate,
+      modelVersion: "v3.2"
+    },
+    auditStatus: "pending_review"
+  }]
+}
+
+// Key indexes
+db.patients.createIndex({ "documents.auditStatus": 1, "documents.receivedAt": -1 })
+db.patients.createIndex({ mrn: 1 }, { unique: true })
+
+// Aggregation: Daily coding accuracy report
+db.patients.aggregate([
+  { $unwind: "$documents" },
+  { $match: { "documents.receivedAt": { $gte: today } } },
+  { $group: {
+      _id: "$documents.auditStatus",
+      count: { $sum: 1 },
+      avgConfidence: { $avg: { $max: "$documents.nlpResults.codes.confidence" } }
+  }}
+])</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Scenario 2: eCommerce Collectibles Marketplace</strong>
+                <p><strong>Problem:</strong> 10M+ product listings, real-time pricing, search with facets, inventory sync across 5 storefronts.</p>
+<pre><code>// Product schema (MongoDB - source of truth)
+{
+  _id: ObjectId,
+  title: "1986 Fleer Michael Jordan #57",
+  sport: "Basketball",
+  year: 1986,
+  brand: "Fleer",
+  player: "Michael Jordan",
+  prices: {
+    raw: { low: 3000, mid: 8000, high: 25000 },
+    graded: { psa10: 450000, psa9: 45000 }
+  },
+  inventory: [
+    { storefront: "us", qty: 12, updatedAt: ISODate },
+    { storefront: "eu", qty: 3, updatedAt: ISODate }
+  ],
+  priceHistory: []  // moved to separate collection (subset pattern)
+}
+
+// Sharding: by sport (zone-based)
+sh.shardCollection("marketplace.products", { sport: 1, _id: 1 })
+// Zone: "basketball" → shard1, "baseball" → shard2
+
+// Kafka flow:
+// Price update event → Kafka "price-updates" topic
+// Consumer updates MongoDB → Change Stream → Kafka → ES sync
+// Inventory event → Kafka "inventory-sync" → all 5 storefronts</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Scenario 3: Enterprise DAM (Digital Asset Management)</strong>
+                <p><strong>Problem:</strong> 500K+ digital assets across 8 brands, metadata taxonomy, approval workflows, CDN delivery.</p>
+<pre><code>// Asset schema
+{
+  _id: ObjectId,
+  filename: "dabur-honey-campaign-2024.jpg",
+  brand: "Dabur Honey",
+  type: "image",
+  metadata: {
+    campaign: "Summer 2024",
+    tags: ["honey", "health", "summer"],
+    dimensions: { w: 1920, h: 1080 },
+    format: "jpeg",
+    size: 2400000
+  },
+  workflow: {
+    status: "approved",         // draft → review → approved → published
+    submittedBy: "marketing_in",
+    approvedBy: "brand_manager",
+    publishedAt: ISODate
+  },
+  acl: {
+    brand: "dabur_honey",       // multi-tenant isolation
+    roles: ["marketing", "brand_manager"]
+  },
+  cdnUrl: "https://cdn.dabur.com/assets/..."
+}
+
+// Search with Elasticsearch
+// Facets: brand, type, campaign, status, tags
+// Autocomplete on filename and tags</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Scenario 4: Real-Time Analytics Dashboard</strong>
+<pre><code>// Clickstream events collected via Kafka
+// Stored in MongoDB with TTL index (auto-delete after 90 days)
+{
+  userId: "u123",
+  event: "product_view",
+  productId: "p456",
+  timestamp: ISODate,
+  sessionId: "sess-789",
+  metadata: { source: "search", device: "mobile" }
+}
+
+db.clickstream.createIndex({ timestamp: 1 }, { expireAfterSeconds: 7776000 })
+
+// Real-time dashboard aggregation
+db.clickstream.aggregate([
+  { $match: { timestamp: { $gte: lastHour } } },
+  { $group: {
+      _id: { event: "$event", minute: { $dateTrunc: { date: "$timestamp", unit: "minute" } } },
+      count: { $sum: 1 },
+      uniqueUsers: { $addToSet: "$userId" }
+  }},
+  { $project: { event: "$_id.event", minute: "$_id.minute", count: 1, uniqueUsers: { $size: "$uniqueUsers" } } },
+  { $merge: { into: "dashboard_metrics" } }  // materialized view
+])</code></pre>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q: Walk through your healthcare platform architecture end-to-end.</div>
+                    <div class="answer"><strong>Ingestion:</strong> Clinical docs received via HL7/FHIR APIs → Kafka topic. <strong>Processing:</strong> NLP service consumes, extracts ICD-10/CPT codes, writes results to MongoDB Atlas. <strong>Storage:</strong> Polymorphic schema handles 20+ doc types. Field-level encryption for PHI. <strong>Query:</strong> Aggregation pipelines for accuracy reports, Atlas Search for diagnosis lookup. <strong>Dashboard:</strong> React frontend reads from MongoDB via Node.js API. <strong>Infra:</strong> AWS, MongoDB Atlas M30, Kafka on MSK, Datadog monitoring.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How did you handle schema for 20+ document types?</div>
+                    <div class="answer"><strong>Polymorphic pattern.</strong> Common fields at top level (mrn, receivedAt, auditStatus). Type-specific fields in nested objects. Discriminator field <code>type</code> identifies the document type. Single collection with compound index on <code>{type: 1, auditStatus: 1}</code>. Avoided 20 separate collections &mdash; would have complicated aggregation and reporting across types.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: Why zone-based sharding for the marketplace?</div>
+                    <div class="answer">Different sports have different query volumes (basketball = 40% of traffic, baseball = 30%). Zone sharding lets us place <strong>hot data on powerful shards</strong>. Also, regional storefronts mostly query their sport &mdash; EU users search football, US users search baseball/basketball. Zone sharding + read preference "nearest" minimized cross-shard queries. Most queries were <strong>targeted to single shard</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How did you handle data consistency across MongoDB and ES?</div>
+                    <div class="answer">MongoDB = <strong>source of truth</strong>. ES = read-optimized copy. Sync via Kafka (MongoDB Source Connector → Kafka → ES Sink Connector). If ES gets out of sync: full re-index from MongoDB. Designed frontend to handle ES eventual consistency &mdash; after writes, show data from MongoDB directly, not from ES search. Sync lag was typically under 500ms.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How would you design a notification system with MongoDB + Kafka?</div>
+                    <div class="answer"><strong>1)</strong> Change Stream on "orders" collection captures status changes. <strong>2)</strong> Publish to Kafka "notification-events" topic. <strong>3)</strong> Multiple consumers: email service, SMS service, push notification service &mdash; each in separate consumer group. <strong>4)</strong> Store notification history in MongoDB with TTL index. <strong>5)</strong> Idempotent sends &mdash; use orderId + eventType as dedup key. Fully decoupled &mdash; adding a new notification channel = adding a new consumer.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: How to handle data migration from MySQL to MongoDB?</div>
+                    <div class="answer"><strong>Phase 1:</strong> Analyze MySQL schema, identify embedding opportunities (normalize 200 tables → ~30 collections). <strong>Phase 2:</strong> Write migration scripts (Python + pymongo), transform relational rows to documents. <strong>Phase 3:</strong> Dual-write period &mdash; app writes to both MySQL and MongoDB. <strong>Phase 4:</strong> Validate data parity. <strong>Phase 5:</strong> Switch reads to MongoDB. <strong>Phase 6:</strong> Decommission MySQL. Took 6 months for Beckett. Result: 60% less schema complexity, 8x faster API responses.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: If you were designing from scratch today, what would you change?</div>
+                    <div class="answer"><strong>1)</strong> Use MongoDB Atlas Serverless for variable workloads (pay-per-op). <strong>2)</strong> Atlas Search instead of separate ES cluster (simpler ops). <strong>3)</strong> Atlas Triggers instead of custom Kafka consumers for simple event handling. <strong>4)</strong> CSFLE from day one for all PII. <strong>5)</strong> Time-series collections for clickstream instead of regular collections. <strong>6)</strong> Online Archive for historical data from day one. Basically: leverage more Atlas-native features to reduce operational overhead.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q: What's your approach when something goes wrong in production?</div>
+                    <div class="answer"><strong>1) Detect:</strong> Datadog alerts on latency spike / error rate. <strong>2) Triage:</strong> Check MongoDB Atlas metrics (connections, opcounters, replication lag). <strong>3) Diagnose:</strong> Profiler for slow queries, <code>currentOp()</code> for blocked operations, oplog for replication issues. <strong>4) Fix:</strong> Kill long-running queries, add missing indexes, scale up if needed. <strong>5) Prevent:</strong> Add monitoring for the new pattern, update runbook. Real example: found COLLSCAN on 10M collection during peak &mdash; added compound index, response dropped from 12s to 8ms.</div>
                 </div>
             </div>
         </div>
