@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anuj Sharma - Resume</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @page {
+            size: A4;
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            color: #1a1a2e;
+            background: #f0f0f0;
+            line-height: 1.5;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .resume-container {
+            max-width: 850px;
+            margin: 30px auto;
+            background: #ffffff;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+            overflow: hidden;
+        }
+
+        @media print {
+            body { background: #fff; margin: 0; }
+            .resume-container { box-shadow: none; margin: 0; max-width: 100%; }
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: #ffffff;
+            padding: 30px 50px 25px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .header-name {
+            font-family: 'Playfair Display', 'Georgia', serif;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            margin-bottom: 4px;
+        }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 400;
+            color: #8ecae6;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+        }
+
+        .header-contact {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            font-size: 13px;
+            color: #cde0e8;
+        }
+
+        .header-contact span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-contact .icon {
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        /* Main Content */
+        .content {
+            padding: 25px 50px 30px;
+        }
+
+        /* Section */
+        .section {
+            margin-bottom: 18px;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: #2c5364;
+            border-bottom: 2.5px solid #2c5364;
+            padding-bottom: 6px;
+            margin-bottom: 12px;
+        }
+
+        /* Executive Profile */
+        .profile-text {
+            font-size: 12.5px;
+            color: #333;
+            line-height: 1.6;
+            text-align: justify;
+        }
+
+        /* Key Strengths */
+        .strengths-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 30px;
+        }
+
+        .strength-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .strength-marker {
+            width: 8px;
+            height: 8px;
+            min-width: 8px;
+            background: linear-gradient(135deg, #2c5364, #203a43);
+            border-radius: 2px;
+            margin-top: 6px;
+            transform: rotate(45deg);
+        }
+
+        .strength-content {
+            font-size: 12px;
+            color: #333;
+        }
+
+        .strength-label {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        /* Experience */
+        .experience-item {
+            margin-bottom: 14px;
+            padding-left: 18px;
+            border-left: 3px solid #e0e7ec;
+            position: relative;
+            page-break-inside: avoid;
+        }
+
+        .experience-item::before {
+            content: '';
+            position: absolute;
+            left: -7px;
+            top: 6px;
+            width: 11px;
+            height: 11px;
+            background: #2c5364;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+        }
+
+        .experience-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .exp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            margin-bottom: 5px;
+        }
+
+        .exp-role {
+            font-size: 14.5px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+
+        .exp-company {
+            font-size: 13.5px;
+            font-weight: 500;
+            color: #2c5364;
+        }
+
+        .exp-date {
+            font-size: 12px;
+            font-weight: 500;
+            color: #777;
+            background: #f4f7f9;
+            padding: 2px 10px;
+            border-radius: 12px;
+        }
+
+        .exp-bullets {
+            list-style: none;
+            padding: 0;
+        }
+
+        .exp-bullets li {
+            font-size: 12px;
+            color: #444;
+            padding-left: 16px;
+            position: relative;
+            margin-bottom: 3px;
+            line-height: 1.5;
+        }
+
+        .exp-bullets li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: #2c5364;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        /* Highlights */
+        .highlights-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        .highlight-card {
+            background: linear-gradient(135deg, #f8fbfc, #eef3f6);
+            border-radius: 8px;
+            padding: 12px 14px;
+            border-left: 3px solid #2c5364;
+        }
+
+        .highlight-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #2c5364;
+            margin-bottom: 6px;
+        }
+
+        .highlight-desc {
+            font-size: 12.5px;
+            color: #444;
+            line-height: 1.55;
+        }
+
+        /* Education */
+        .education-grid {
+            display: flex;
+            gap: 30px;
+        }
+
+        .edu-item {
+            font-size: 13px;
+            color: #333;
+        }
+
+        .edu-degree {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        .edu-detail {
+            color: #666;
+            font-size: 12.5px;
+        }
+
+        /* Page break controls for PDF */
+        .section {
+            page-break-inside: auto;
+        }
+
+        .section-title {
+            page-break-after: avoid;
+        }
+
+        .strengths-grid {
+            page-break-inside: avoid;
+        }
+
+        .highlight-card {
+            page-break-inside: avoid;
+        }
+
+        .highlights-grid {
+            page-break-inside: avoid;
+        }
+
+        .education-grid {
+            page-break-inside: avoid;
+        }
+
+        /* Footer accent */
+        .footer-accent {
+            height: 5px;
+            background: linear-gradient(90deg, #0f2027, #203a43, #2c5364, #203a43, #0f2027);
+        }
+
+        /* PDF Download Button */
+        .pdf-btn {
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            background: linear-gradient(135deg, #0f2027, #2c5364);
+            color: #fff;
+            border: none;
+            padding: 14px 28px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.4);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pdf-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(44, 83, 100, 0.55);
+        }
+
+        .pdf-btn:active {
+            transform: translateY(0);
+        }
+
+        .pdf-btn.generating {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .pdf-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: #fff;
+        }
+
+        @media print {
+            .pdf-btn { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="resume-container">
+
+        <!-- Header -->
+        <div class="header">
+            <div class="header-name">ANUJ SHARMA</div>
+            <div class="header-title">Technical Architect &nbsp;|&nbsp; MongoDB & AI-Driven Systems Leader</div>
+            <div class="header-contact">
+                <span><span class="icon">&#9906;</span> India</span>
+                <span><span class="icon">&#9742;</span> +91 9643784517</span>
+                <span><span class="icon">&#9993;</span> anujsharmaphp@gmail.com</span>
+            </div>
+        </div>
+
+        <div class="content">
+
+            <!-- Executive Profile -->
+            <div class="section">
+                <div class="section-title">Executive Profile</div>
+                <p class="profile-text">
+                    Strategic Technical Architect and Engineering Leader with over 15 years of progressive experience delivering mission-critical, scalable digital platforms across healthcare, eCommerce, and enterprise SaaS domains. Recognized for deep expertise in MongoDB-backed architectures, AI/NLP-powered automation, and cloud-native event-driven systems. Proven track record in leading cross-functional engineering teams of 15+, driving end-to-end product delivery, and aligning technology strategy with business objectives. Expert in NoSQL schema design, aggregation frameworks, sharding strategies, and performance tuning at scale. Adept at stakeholder communication, vendor management, and translating complex technical concepts into actionable roadmaps for C-level executives.
+                </p>
+            </div>
+
+            <!-- Key Strengths -->
+            <div class="section">
+                <div class="section-title">Core Competencies</div>
+                <div class="strengths-grid">
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Database Engineering:</span> MongoDB (Atlas, Sharding, Replication, Indexing, Aggregation Framework, Change Streams), Elasticsearch, MySQL, Redis.
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Scalable Architecture:</span> NoSQL Document Modeling, Event-Driven Architecture (Kafka), Microservices, Cloud-Native AWS (EC2, S3, Lambda, SQS).
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Intelligent Systems:</span> AI/NLP Automation, Machine Learning Pipelines, Intelligent Workflow Systems, AI-assisted Engineering (LLMs, RAG).
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Engineering Leadership:</span> Cross-functional team leadership (15+ engineers) across React, Node.js, Python, PHP, and Java stacks.
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">SRE & Reliability:</span> Observability (Datadog, CloudWatch), High-Availability Engineering, Incident Management, and Production Stability.
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">DevOps & CI/CD:</span> Docker, Kubernetes, Jenkins, GitHub Actions, Infrastructure as Code (Terraform), Automated Deployment Pipelines.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Technical Skills -->
+            <div class="section">
+                <div class="section-title">Technical Skills</div>
+                <div class="strengths-grid">
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Databases:</span> MongoDB, Elasticsearch, MySQL, Redis, DynamoDB
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Languages:</span> Python, JavaScript/TypeScript, PHP, Java, Node.js
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Frameworks:</span> React, Next.js, Laravel, Spring Boot, Express.js, FastAPI
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Cloud & Infra:</span> AWS (EC2, S3, Lambda, SQS, ECS), Docker, Kubernetes, Terraform
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Messaging:</span> Apache Kafka, RabbitMQ, AWS SQS/SNS
+                        </div>
+                    </div>
+                    <div class="strength-item">
+                        <div class="strength-marker"></div>
+                        <div class="strength-content">
+                            <span class="strength-label">Tools & Practices:</span> Git, Jenkins, GitHub Actions, Jira, Confluence, Agile/Scrum, TDD
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Professional Experience -->
+            <div class="section">
+                <div class="section-title">Professional Experience</div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Software Manager</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; CorroHealth Pvt Ltd</span>
+                        </div>
+                        <span class="exp-date">Sep 2024 &ndash; Present</span>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Leading healthcare IT engineering by architecting MongoDB Atlas-based document stores for unstructured medical data (clinical notes, discharge summaries, diagnostic reports), optimizing retrieval for AI/NLP medical coding workflows with sub-100ms query response times.</li>
+                        <li>Designed and implemented MongoDB aggregation pipelines for real-time analytics dashboards, enabling operations teams to track coding accuracy, auditor productivity, and revenue cycle metrics across 50+ healthcare facilities.</li>
+                        <li>Driving AI/NLP adoption for automated medical coding (ICD-10, CPT), achieving 35% improvement in coding accuracy and 40% reduction in manual review cycles through intelligent document classification.</li>
+                        <li>Architected event-driven microservices using Kafka and AWS SQS for asynchronous processing of medical records, handling 100K+ documents daily with guaranteed delivery and fault tolerance.</li>
+                        <li>Owning reliability, uptime strategy (99.9% SLA), and observability standards using Datadog and CloudWatch across high-availability production systems serving 200+ concurrent users.</li>
+                        <li>Managing a cross-functional team of 12 engineers (backend, frontend, data), conducting architecture reviews, sprint planning, and mentoring senior developers on MongoDB best practices.</li>
+                        <li>Implemented HIPAA-compliant data handling with MongoDB field-level encryption, VPC peering, audit logging, and role-based access control for PHI (Protected Health Information).</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Technical Architect</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; IQVIA (via Aston Carter)</span>
+                        </div>
+                        <span class="exp-date">Dec 2023 &ndash; Sep 2024</span>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Led the Pimcore DAM/CMS architecture program for Dabur India, designing flexible NoSQL schemas to manage 500K+ complex digital assets (images, videos, documents) with rich metadata taxonomy at enterprise scale.</li>
+                        <li>Defined scalable backend integration strategies using RESTful APIs and GraphQL, ensuring secure, high-performance content delivery to 15+ downstream consumer applications and marketing channels.</li>
+                        <li>Implemented advanced search capabilities using Elasticsearch with custom analyzers and faceted search, reducing content discovery time by 60% for marketing and brand teams.</li>
+                        <li>Architected multi-tenant data isolation strategy supporting 8 Dabur sub-brands with shared infrastructure but independent content governance and access control policies.</li>
+                        <li>Partnered with stakeholders across India, US, and Europe to align digital platform roadmaps with enterprise business goals, presenting architecture decisions to VP-level leadership.</li>
+                        <li>Established CI/CD pipelines using Jenkins and Docker for automated testing, staging, and zero-downtime deployments of the Pimcore platform.</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Technical Manager / Architect</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; Entrust Global Group (Eli Research)</span>
+                        </div>
+                        <span class="exp-date">Jan 2013 &ndash; Jan 2023</span>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Directed architecture for global eCommerce platforms (Beckett Collectibles & DragonShield), implementing MongoDB for product catalog (10M+ documents) and Elasticsearch for full-text search with autocomplete, handling 2M+ monthly active users.</li>
+                        <li>Designed Kafka-driven event ecosystems for high-volume hobbyist collectibles data &mdash; real-time price updates, inventory synchronization, and marketplace order fulfillment across 5 international storefronts.</li>
+                        <li>Engineered MongoDB sharded clusters with zone-based sharding for geo-distributed data, reducing read latency by 70% for US and European users through strategic replica placement.</li>
+                        <li>Built real-time clickstream analytics pipeline using Kafka + MongoDB Change Streams, capturing user behavior data for personalized product recommendations and conversion optimization.</li>
+                        <li>Led migration of legacy MySQL monolith (200+ tables) to MongoDB document model, reducing schema complexity by 60% and improving API response times from 800ms to under 100ms.</li>
+                        <li>Managed distributed engineering team of 15+ across India and Denmark, establishing coding standards, architecture review processes, and Agile delivery frameworks.</li>
+                        <li>Collaborated directly with international stakeholders, including multiple on-site visits to Denmark for architecture delivery, sprint reviews, and strategic planning sessions.</li>
+                        <li>Implemented comprehensive monitoring and alerting using ELK stack and custom dashboards, achieving 99.95% uptime across all production systems over a 3-year period.</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Technical Lead</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; Intelgain Technology</span>
+                        </div>
+                        <span class="exp-date">Oct 2010 &ndash; Jan 2013</span>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Led backend architecture and team delivery for enterprise web applications, designing scalable data models and RESTful APIs serving 50K+ daily active users across multiple SaaS products.</li>
+                        <li>Introduced MySQL query optimization practices including indexing strategies, query profiling, and connection pooling &mdash; reducing average query execution time by 45%.</li>
+                        <li>Mentored a team of 6 junior developers on design patterns, code review best practices, and test-driven development methodologies.</li>
+                        <li>Built automated deployment scripts and server provisioning workflows, reducing deployment time from 4 hours to 20 minutes.</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Sr. Software Developer</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; MG Infocom</span>
+                        </div>
+                        <span class="exp-date">Aug 2009 &ndash; Sep 2010</span>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Developed scalable PHP-based web applications for enterprise clients, building custom CMS and CRM solutions handling complex business workflows.</li>
+                        <li>Designed and optimized MySQL database schemas supporting multi-tenant SaaS architecture with row-level security and efficient query patterns.</li>
+                        <li>Integrated third-party payment gateways, SMS services, and email APIs, building reusable service layers adopted across 5+ client projects.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Key Projects -->
+            <div class="section">
+                <div class="section-title">Key Projects & Achievements</div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">AI-Powered Medical Coding Platform</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; CorroHealth</span>
+                        </div>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Architected end-to-end platform for automated medical coding using NLP models, MongoDB Atlas for document storage, and Kafka for event-driven processing of 100K+ daily clinical documents.</li>
+                        <li>Designed MongoDB schema with polymorphic document patterns to handle 20+ document types (progress notes, operative reports, radiology) with unified query interface.</li>
+                        <li>Built real-time coding suggestion engine using MongoDB Atlas Search with fuzzy matching, serving predictions in under 200ms to 150+ medical coders.</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Beckett Collectibles Marketplace</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; Entrust / Eli Research</span>
+                        </div>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Built a high-traffic collectibles marketplace handling 10M+ product listings with real-time pricing, leveraging MongoDB sharded clusters for horizontal scalability and Elasticsearch for advanced search with faceted filtering.</li>
+                        <li>Implemented Kafka-based event sourcing for price history tracking, enabling collectors to view historical pricing trends across 30+ years of sports card data.</li>
+                        <li>Designed recommendation engine using MongoDB aggregation pipelines analyzing user behavior patterns, increasing cross-sell conversion by 25%.</li>
+                    </ul>
+                </div>
+
+                <div class="experience-item">
+                    <div class="exp-header">
+                        <div>
+                            <span class="exp-role">Dabur Digital Asset Management</span>
+                            <span class="exp-company">&nbsp;&middot;&nbsp; IQVIA</span>
+                        </div>
+                    </div>
+                    <ul class="exp-bullets">
+                        <li>Designed enterprise DAM platform on Pimcore managing 500K+ digital assets across 8 brands, with metadata-driven taxonomy, automated image processing pipelines, and CDN-optimized delivery.</li>
+                        <li>Implemented role-based workflows for content approval across marketing teams in 6 countries, reducing asset publishing time from 3 days to 4 hours.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Career Highlights -->
+            <div class="section">
+                <div class="section-title">Selected Career Highlights</div>
+                <div class="highlights-grid">
+                    <div class="highlight-card">
+                        <div class="highlight-title">Healthcare Automation</div>
+                        <div class="highlight-desc">Architected AI/NLP-driven systems supported by MongoDB Atlas for medical coding optimization, improving coding accuracy by 35% and processing 100K+ documents daily.</div>
+                    </div>
+                    <div class="highlight-card">
+                        <div class="highlight-title">Platform Scalability</div>
+                        <div class="highlight-desc">Built high-volume search systems using MongoDB sharding and Elasticsearch for international hobbyist markets serving 2M+ monthly active users across 5 storefronts.</div>
+                    </div>
+                    <div class="highlight-card">
+                        <div class="highlight-title">Reliability & SRE</div>
+                        <div class="highlight-desc">Achieved 99.95% uptime across production systems through observability (Datadog, ELK), proactive monitoring, and incident response frameworks.</div>
+                    </div>
+                </div>
+                <div class="highlights-grid" style="margin-top: 16px;">
+                    <div class="highlight-card">
+                        <div class="highlight-title">Data Migration</div>
+                        <div class="highlight-desc">Led MySQL-to-MongoDB migration for 200+ table legacy system, reducing schema complexity by 60% and improving API response times by 8x.</div>
+                    </div>
+                    <div class="highlight-card">
+                        <div class="highlight-title">Global Delivery</div>
+                        <div class="highlight-desc">Managed distributed teams across India, Denmark, and US with on-site delivery experience. Aligned technology roadmaps with VP-level stakeholders.</div>
+                    </div>
+                    <div class="highlight-card">
+                        <div class="highlight-title">Event-Driven Systems</div>
+                        <div class="highlight-desc">Designed Kafka-based event ecosystems for real-time inventory sync, price updates, and clickstream analytics across global eCommerce platforms.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Education & Certifications -->
+            <div class="section">
+                <div class="section-title">Education & Certifications</div>
+                <div class="education-grid">
+                    <div class="edu-item">
+                        <div class="edu-degree">B.Tech &mdash; Electronics & Communication</div>
+                        <div class="edu-detail">A.C.E.T Aligarh (UPTU), 2006</div>
+                    </div>
+                    <div class="edu-item">
+                        <div class="edu-degree">Deep Learning Certification</div>
+                        <div class="edu-detail">PadhAI</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="footer-accent"></div>
+    </div>
+    <!-- PDF Download Button -->
+    <button class="pdf-btn" id="downloadPdf" onclick="generatePDF()">
+        <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zm7-18L5.33 9h3.34v4h4.66V9h3.34L12 2z" transform="rotate(180 12 12)"/></svg>
+        Download PDF
+    </button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+    <script>
+        function generatePDF() {
+            const btn = document.getElementById('downloadPdf');
+            btn.classList.add('generating');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" style="animation:spin 1s linear infinite"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1 .25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> Generating...';
+
+            const style = document.createElement('style');
+            style.textContent = '@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+            document.head.appendChild(style);
+
+            const element = document.querySelector('.resume-container');
+            const opt = {
+                margin:       0,
+                filename:     'Anuj_Sharma_Resume.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak:    { mode: ['css'] }
+            };
+
+            html2pdf().set(opt).from(element).save().then(function() {
+                btn.classList.remove('generating');
+                btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zm7-18L5.33 9h3.34v4h4.66V9h3.34L12 2z" transform="rotate(180 12 12)"/></svg> Download PDF';
+                style.remove();
+            });
+        }
+    </script>
+</body>
+</html>
