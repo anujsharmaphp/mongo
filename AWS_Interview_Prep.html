@@ -125,7 +125,7 @@
         <p class="sub">Cloud Architect Guide</p>
         <nav>
             <a href="#concept-1" class="active">1. EC2 & Compute</a>
-            <a href="#concept-2" class="pending">2. VPC & Networking</a>
+            <a href="#concept-2">2. VPC & Networking</a>
             <a href="#concept-3" class="pending">3. S3 & Storage</a>
             <a href="#concept-4" class="pending">4. IAM & Security</a>
             <a href="#concept-5" class="pending">5. ELB & Auto Scaling</a>
@@ -245,43 +245,201 @@ curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-da
                 <h3>Interview Q&A</h3>
 
                 <div class="q">
-                    <div class="question">Q: How do you choose the right EC2 instance type?</div>
+                    <div class="question">Q1: How do you choose the right EC2 instance type?</div>
                     <div class="answer"><strong>Step 1:</strong> Profile your workload &mdash; CPU-bound? Memory-bound? I/O-bound? <strong>Step 2:</strong> Start with general purpose (T3/M5). <strong>Step 3:</strong> Monitor CloudWatch (CPU utilization, memory, network). <strong>Step 4:</strong> Right-size based on data. For our healthcare NLP processing: started with M5.xlarge, found it was CPU-bound, switched to C5.2xlarge &mdash; 40% faster, same cost.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: Spot vs Reserved vs Savings Plans &mdash; when to use each?</div>
+                    <div class="question">Q2: Spot vs Reserved vs Savings Plans &mdash; when to use each?</div>
                     <div class="answer"><strong>Reserved:</strong> Steady-state workloads (production DB, always-on API servers) &mdash; know exact instance type. <strong>Savings Plans:</strong> Steady spend but may change instance types/regions &mdash; more flexibility. <strong>Spot:</strong> Fault-tolerant, stateless workloads (batch processing, CI/CD, data pipelines). We used Spot for NLP batch processing (70% savings) + Reserved for production API servers.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: What happens when a Spot instance is interrupted?</div>
+                    <div class="question">Q3: What happens when a Spot instance is interrupted?</div>
                     <div class="answer">AWS sends a <strong>2-minute warning</strong> via instance metadata and CloudWatch Events. Your app should: <strong>1)</strong> Check <code>http://169.254.169.254/latest/meta-data/spot/termination-time</code> periodically. <strong>2)</strong> Save state / checkpoint work. <strong>3)</strong> Deregister from load balancer. Best practice: use <strong>Spot Fleet</strong> with multiple instance types and AZs to reduce interruption risk. Combine with On-Demand for baseline capacity.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: EBS gp3 vs gp2 &mdash; why gp3 is better?</div>
+                    <div class="question">Q4: EBS gp3 vs gp2 &mdash; why gp3 is better?</div>
                     <div class="answer"><strong>gp2:</strong> IOPS scales with volume size (3 IOPS/GB, max 16K). Need 5.3TB volume to get max IOPS. <strong>gp3:</strong> 3000 IOPS + 125 MB/s baseline <strong>regardless of size</strong>. Scale IOPS (up to 16K) and throughput (up to 1000 MB/s) independently. 20% cheaper than gp2 at baseline. Always use gp3 for new volumes.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: How to make EC2 highly available?</div>
+                    <div class="question">Q5: How to make EC2 highly available?</div>
                     <div class="answer"><strong>1)</strong> Launch instances across <strong>multiple AZs</strong>. <strong>2)</strong> Use <strong>Auto Scaling Group</strong> with min/max/desired capacity. <strong>3)</strong> Put behind <strong>ALB</strong> for load distribution + health checks. <strong>4)</strong> Use <strong>Launch Template</strong> (not Launch Config) for consistent deployments. <strong>5)</strong> Store state externally (RDS, ElastiCache, S3) &mdash; instances should be stateless. <strong>6)</strong> Custom AMI for fast boot (pre-baked vs user-data bootstrapping).</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: IMDSv1 vs IMDSv2 &mdash; why enforce v2?</div>
+                    <div class="question">Q6: IMDSv1 vs IMDSv2 &mdash; why enforce v2?</div>
                     <div class="answer">IMDSv1: simple GET request to <code>169.254.169.254</code>. Vulnerable to <strong>SSRF attacks</strong> &mdash; if attacker tricks your app into making a request to metadata endpoint, they can steal IAM role credentials. <strong>IMDSv2:</strong> Requires PUT request first to get a token, then use token in subsequent requests. Blocks SSRF because attacker can't get the token. Always enforce IMDSv2 in production: <code>--metadata-options HttpTokens=required</code>.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: When to use Cluster vs Spread placement group?</div>
+                    <div class="question">Q7: When to use Cluster vs Spread placement group?</div>
                     <div class="answer"><strong>Cluster:</strong> All instances same rack, same AZ. <strong>10 Gbps network</strong> between instances. Use for HPC, tightly-coupled apps where inter-node latency matters (MPI, distributed ML training). Risk: rack failure takes all instances. <strong>Spread:</strong> Each instance on different hardware, across AZs. Max 7 per AZ. Use for critical apps (primary DB replicas, Kafka brokers) where you need <strong>hardware isolation</strong>.</div>
                 </div>
 
                 <div class="q">
-                    <div class="question">Q: How do you handle EC2 cost optimization?</div>
+                    <div class="question">Q8: How do you handle EC2 cost optimization?</div>
                     <div class="answer"><strong>1)</strong> Right-size: use AWS Compute Optimizer to find underutilized instances. <strong>2)</strong> Reserved/Savings Plans for baseline (60-72% savings). <strong>3)</strong> Spot for batch/dev (up to 90% savings). <strong>4)</strong> Schedule: stop dev/staging instances nights/weekends (Instance Scheduler). <strong>5)</strong> Use ARM-based Graviton instances (M6g, C6g) &mdash; 20% cheaper, 40% better price-performance. <strong>6)</strong> Delete unused EBS volumes and unattached Elastic IPs.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 2 -->
+        <div class="concept" id="concept-2">
+            <h2>2. VPC & Networking</h2>
+            <span class="tag">Networking Foundation</span>
+
+            <div class="point">
+                <strong>What is VPC?</strong>
+                <p>Virtual Private Cloud &mdash; your own isolated network in AWS. You control IP ranges (CIDR), subnets, route tables, gateways. Every resource (EC2, RDS, Lambda) lives inside a VPC. Think of it as your private data center in the cloud.</p>
+            </div>
+
+            <div class="point">
+                <strong>CIDR & Subnets</strong>
+                <ul>
+                    <li><strong>CIDR Block:</strong> IP range for VPC. Example: <code>10.0.0.0/16</code> = 65,536 IPs. Choose wisely &mdash; can't change later.</li>
+                    <li><strong>Public Subnet:</strong> Has route to Internet Gateway. Resources get public IP. For: ALBs, NAT Gateways, bastion hosts.</li>
+                    <li><strong>Private Subnet:</strong> No direct internet access. For: App servers, databases, internal services.</li>
+                    <li><strong>Best Practice:</strong> At least 2 AZs, each with public + private subnet. /24 per subnet (256 IPs, 251 usable &mdash; AWS reserves 5).</li>
+                </ul>
+<pre><code># Typical 3-tier VPC layout
+VPC: 10.0.0.0/16
+
+Public Subnets (ALB, NAT):
+  10.0.1.0/24  (AZ-a)    10.0.2.0/24  (AZ-b)
+
+Private Subnets (App servers):
+  10.0.10.0/24 (AZ-a)    10.0.20.0/24 (AZ-b)
+
+Data Subnets (RDS, ElastiCache):
+  10.0.100.0/24 (AZ-a)   10.0.200.0/24 (AZ-b)</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Internet Gateway (IGW) & NAT Gateway</strong>
+                <ul>
+                    <li><strong>IGW:</strong> Allows public subnet resources to reach the internet (and internet to reach them). One per VPC. Free.</li>
+                    <li><strong>NAT Gateway:</strong> Allows private subnet resources to reach the internet (outbound only &mdash; for updates, API calls). Internet can't initiate connection in. Managed, scales automatically. ~$0.045/hr + data charges. Place in public subnet.</li>
+                    <li><strong>NAT Instance:</strong> EC2 instance doing NAT. Cheaper but you manage it. Use for dev/cost-sensitive environments.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Route Tables</strong>
+<pre><code># Public Subnet Route Table
+Destination      Target
+10.0.0.0/16      local          # VPC internal traffic
+0.0.0.0/0        igw-xxxxx      # All other traffic → Internet Gateway
+
+# Private Subnet Route Table
+Destination      Target
+10.0.0.0/16      local          # VPC internal traffic
+0.0.0.0/0        nat-xxxxx      # All other traffic → NAT Gateway</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Security Groups vs NACLs</strong>
+<pre><code>Feature          | Security Group         | NACL
+-----------------+------------------------+-------------------------
+Level            | Instance (ENI)         | Subnet
+State            | Stateful               | Stateless
+Rules            | Allow only             | Allow + Deny
+Evaluation       | All rules evaluated    | Rules by number (low→high)
+Default          | Deny all in, Allow out | Allow all in + out
+Return traffic   | Auto-allowed           | Must explicitly allow</code></pre>
+                <ul>
+                    <li><strong>SG tip:</strong> Reference other SGs instead of IPs. Example: ALB SG allows 443 from 0.0.0.0/0. App SG allows 8080 from ALB-SG only.</li>
+                    <li><strong>NACL tip:</strong> Use as extra defense layer. Block known bad IPs at subnet level. Remember: must allow ephemeral ports (1024-65535) for return traffic.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>VPC Peering</strong>
+                <p>Private connection between two VPCs (same or different accounts/regions). Traffic stays on AWS backbone. <strong>Not transitive</strong> &mdash; if A peers with B and B peers with C, A can't talk to C. CIDR blocks must not overlap.</p>
+            </div>
+
+            <div class="point">
+                <strong>Transit Gateway</strong>
+                <p>Hub-and-spoke model. Connect multiple VPCs, on-prem networks, VPNs through a single gateway. Scales to thousands of VPCs. Supports transitive routing. Replaces complex peering mesh.</p>
+<pre><code># Without Transit Gateway: N VPCs need N*(N-1)/2 peering connections
+# 10 VPCs = 45 peering connections 😩
+
+# With Transit Gateway: N VPCs need N connections
+# 10 VPCs = 10 connections to TGW ✅
+# Plus: centralized routing, monitoring, security</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>VPN & Direct Connect</strong>
+                <ul>
+                    <li><strong>Site-to-Site VPN:</strong> Encrypted tunnel over public internet. Quick setup (~minutes). Bandwidth limited by internet connection. For: dev, backup, low-traffic hybrid.</li>
+                    <li><strong>Direct Connect:</strong> Dedicated physical fiber from your data center to AWS. 1 Gbps or 10 Gbps. Consistent latency, no internet. For: high-throughput production workloads, compliance. Takes weeks to provision.</li>
+                    <li><strong>Direct Connect Gateway:</strong> Access VPCs in multiple regions via single Direct Connect.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>VPC Endpoints</strong>
+                <ul>
+                    <li><strong>Gateway Endpoint:</strong> Free. For S3 and DynamoDB. Add entry to route table. Traffic stays in AWS network.</li>
+                    <li><strong>Interface Endpoint (PrivateLink):</strong> ENI in your subnet. For 100+ AWS services (SQS, SNS, KMS, CloudWatch). Costs ~$0.01/hr. Private DNS resolves service to private IP.</li>
+                    <li><strong>Why?</strong> Keep traffic off the internet. Required for private subnets without NAT. Better security + lower data transfer costs.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>VPC Flow Logs</strong>
+                <p>Capture IP traffic metadata (source, dest, port, action, bytes). Attach to VPC, subnet, or ENI. Send to CloudWatch Logs or S3. For: troubleshooting connectivity, security analysis, compliance auditing.</p>
+<pre><code># Flow Log format example:
+# version account-id eni-id srcaddr dstaddr srcport dstport protocol packets bytes start end action log-status
+2 123456789012 eni-abc123 10.0.1.5 52.94.133.10 49761 443 6 12 1080 1580000000 1580000060 ACCEPT OK
+2 123456789012 eni-abc123 203.0.113.99 10.0.1.5 0 0 1 4 336 1580000000 1580000060 REJECT OK</code></pre>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q1: Design a VPC for a 3-tier web application.</div>
+                    <div class="answer"><strong>VPC:</strong> 10.0.0.0/16 across 2 AZs. <strong>Tier 1 (Public):</strong> 2 public subnets for ALB + NAT Gateway. <strong>Tier 2 (Private):</strong> 2 private subnets for app servers (EC2/ECS). <strong>Tier 3 (Data):</strong> 2 isolated subnets for RDS Multi-AZ + ElastiCache. SGs: ALB accepts 443 from internet → App accepts 8080 from ALB-SG only → DB accepts 3306 from App-SG only. NAT Gateway for outbound (updates, external APIs). VPC endpoints for S3 and DynamoDB.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q2: How does a private subnet access the internet?</div>
+                    <div class="answer">Via <strong>NAT Gateway</strong> placed in a public subnet. Private subnet route table has <code>0.0.0.0/0 → nat-gw</code>. NAT Gateway has a route to IGW via public subnet route table. Traffic flow: Private instance → NAT GW (translates private IP to NAT's Elastic IP) → IGW → internet. Response comes back same path. Internet <strong>cannot</strong> initiate connections to private instances. For AWS service access without internet: use <strong>VPC Endpoints</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q3: VPC Peering vs Transit Gateway &mdash; when to use which?</div>
+                    <div class="answer"><strong>VPC Peering:</strong> Simple, free data transfer (same region), low latency. Use for 2-3 VPCs that need direct communication. Limitation: not transitive, full mesh gets complex. <strong>Transit Gateway:</strong> Hub-and-spoke, supports transitive routing, connects 1000s of VPCs + on-prem. Use when: >3 VPCs, need centralized routing/monitoring, hybrid connectivity. We used TGW at CorroHealth to connect prod VPC + staging VPC + on-prem via VPN &mdash; single point of management.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q4: What are VPC Endpoints and why use them?</div>
+                    <div class="answer">VPC Endpoints let you access AWS services <strong>without going through the internet</strong>. Two types: <strong>Gateway</strong> (free, for S3/DynamoDB, route table entry) and <strong>Interface/PrivateLink</strong> (ENI in your subnet, for 100+ services). Benefits: <strong>1)</strong> Better security &mdash; traffic never leaves AWS network. <strong>2)</strong> No need for NAT Gateway (saves cost). <strong>3)</strong> Required for private subnets accessing S3/DynamoDB. <strong>4)</strong> Lower latency. We used Gateway Endpoint for S3 access from private app servers.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q5: Direct Connect vs VPN &mdash; when to use each?</div>
+                    <div class="answer"><strong>VPN:</strong> Quick setup (minutes), encrypted over internet, up to 1.25 Gbps per tunnel (use multiple for more). Good for: dev, backup, low-traffic hybrid. <strong>Direct Connect:</strong> Dedicated fiber, consistent latency, 1-10 Gbps, takes weeks to provision. For: production workloads needing consistent performance, large data transfers, compliance (data must not traverse public internet). Best practice: use both &mdash; <strong>Direct Connect primary + VPN as failover</strong>.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q6: How to troubleshoot "instance can't reach the internet"?</div>
+                    <div class="answer">Checklist: <strong>1)</strong> Is instance in public subnet? Check route table for IGW route. <strong>2)</strong> Does instance have public/Elastic IP? <strong>3)</strong> Security Group: outbound rule allows traffic? <strong>4)</strong> NACL: allows outbound + ephemeral port inbound? <strong>5)</strong> If private subnet: NAT Gateway exists? Route table has 0.0.0.0/0 → NAT? <strong>6)</strong> NAT Gateway in public subnet with IGW route? <strong>7)</strong> Check VPC Flow Logs for REJECT entries. Usually it's a missing route or SG rule.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q7: Stateful vs Stateless firewalls &mdash; explain with SG and NACL.</div>
+                    <div class="answer"><strong>Stateful (SG):</strong> If you allow inbound on port 443, the response is <strong>automatically allowed</strong> regardless of outbound rules. It tracks connection state. <strong>Stateless (NACL):</strong> Each direction evaluated independently. If you allow inbound 443, you MUST also allow outbound on <strong>ephemeral ports (1024-65535)</strong> for the response. Forgetting this is the #1 NACL mistake. NACLs process rules by number &mdash; first match wins (unlike SGs which evaluate all rules).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q8: How to design VPC for HIPAA compliance?</div>
+                    <div class="answer"><strong>1)</strong> All resources in <strong>private subnets</strong> &mdash; no public IPs on app/data tier. <strong>2)</strong> VPC Endpoints for AWS services (no internet traversal). <strong>3)</strong> <strong>NACLs + SGs</strong> with least-privilege rules. <strong>4)</strong> <strong>VPC Flow Logs</strong> enabled and shipped to S3/CloudWatch for audit. <strong>5)</strong> <strong>Direct Connect or VPN</strong> for on-prem connectivity. <strong>6)</strong> <strong>PrivateLink</strong> for third-party service access. <strong>7)</strong> Encrypt all traffic with TLS. We implemented all of these at CorroHealth for PHI data handling.</div>
                 </div>
             </div>
         </div>
