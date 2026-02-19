@@ -258,25 +258,34 @@ curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-da
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">How EC2 fits in the Medical Coding Pipeline</p>
+                <p class="arch-label">How EC2 fits in the Medical Coding Pipeline (250 Processing Units)</p>
                 <pre>
-  Hospital Portal (Upload PDF)
-        |
-        v
-  [ ALB ] ──→ [ EC2 - Web Dashboard ]  ← Medical coders review AI suggestions
-                  t3.large (2 vCPU, 8GB)
+  FULL PIPELINE:
+  Client Upload → S3 → SQS-1 → Lambda(Textract) → SQS-2 → Java App → AI → DB → Downstream
 
-  [ EC2 - AI Inference GPU ]  ← Runs ML model for code extraction
-     g4dn.xlarge (T4 GPU)       ICD-10, CPT, HCPCS classification
-     Spot Instance (70% savings)
-
-  [ EC2 - Bastion Host ]  ← Admin SSH access to private subnet
-     t3.micro (On-Demand)</pre>
+  WHERE EC2 RUNS:
+  ┌──────────────────────────────────────────────────────────────┐
+  │  EC2: Java Sectionizer App (250 units)                       │
+  │  Instance: c5.xlarge (4 vCPU, 8GB) × 250 units in ASG       │
+  │  Picks from SQS-2 → sectionizes medical text (HPI,          │
+  │  Assessment, Plan) → sends sections to AI for coding         │
+  │  Spot Instances for cost savings (SQS retries on interrupt)  │
+  └──────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  EC2: Coder Review Dashboard                                 │
+  │  Instance: t3.large (2 vCPU, 8GB) in ASG behind ALB         │
+  │  Coders review AI-suggested ICD-10, CPT, HCPCS codes        │
+  └──────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  EC2: Bastion Host (t3.micro) for admin access               │
+  │  SSH tunnel to Aurora/ElastiCache in private subnet           │
+  └──────────────────────────────────────────────────────────────┘</pre>
                 <ul>
-                    <li><strong>Dashboard servers:</strong> t3.large On-Demand in ASG (min 2) &mdash; coders access the review interface 24/7, need consistent availability</li>
-                    <li><strong>GPU inference:</strong> g4dn.xlarge Spot Instances for batch PDF processing overnight &mdash; 70% cost savings, interruption-tolerant since SQS retries failed jobs</li>
-                    <li><strong>Bastion host:</strong> t3.micro in public subnet for SSH tunneling to RDS in private subnet &mdash; HIPAA audit requires all DB access logged</li>
-                    <li><strong>User data script:</strong> Bootstrap installs CloudWatch agent, pulls HIPAA-compliant config from S3, mounts encrypted EBS for temp PDF processing</li>
+                    <li><strong>Java sectionizer (250 units):</strong> c5.xlarge Spot Instances in ASG. Each unit polls SQS-2, receives Textract output, sectionizes into medical sections (HPI, ROS, Assessment, Plan), sends to AI service for ICD-10/CPT coding</li>
+                    <li><strong>Spot Instances for Java app:</strong> 70% cost savings. Safe because SQS-2 retries messages if a Spot instance is interrupted &mdash; visibility timeout returns message to queue</li>
+                    <li><strong>Dashboard servers:</strong> t3.large On-Demand in ASG (min 2). Coders review AI-generated codes, approve/reject, finalize encounters</li>
+                    <li><strong>User data script:</strong> Bootstrap installs CloudWatch agent, pulls Java app JAR from S3, configures SQS consumer threads, connects to AI endpoint</li>
+                    <li><strong>Bastion host:</strong> t3.micro in public subnet for SSH tunneling to Aurora in private subnet &mdash; HIPAA audit requires all DB access logged</li>
                 </ul>
             </div>
 
@@ -440,36 +449,42 @@ Return traffic   | Auto-allowed           | Must explicitly allow</code></pre>
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">VPC Architecture for HIPAA-Compliant Medical Coding</p>
+                <p class="arch-label">VPC Architecture for 250-Unit Processing Pipeline</p>
                 <pre>
   VPC: 10.0.0.0/16 (MedCode Production)
-  ┌─────────────────────────────────────────────────────────┐
-  │                                                         │
-  │  Public Subnet 10.0.1.0/24        (us-east-1a)         │
-  │  ┌──────────┐  ┌──────────┐                             │
-  │  │   ALB    │  │ Bastion  │  ← NAT Gateway here        │
-  │  └──────────┘  └──────────┘                             │
-  │                                                         │
-  │  Private Subnet 10.0.10.0/24      (App Layer)           │
-  │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-  │  │Dashboard │  │ Lambda   │  │ AI GPU   │              │
-  │  │ EC2/ECS  │  │ (in VPC) │  │ Instance │              │
-  │  └──────────┘  └──────────┘  └──────────┘              │
-  │                                                         │
-  │  Isolated Subnet 10.0.20.0/24     (Data Layer)          │
-  │  ┌──────────┐  ┌──────────┐                             │
-  │  │  Aurora   │  │ElastiCache│ ← No internet access      │
-  │  │  MySQL   │  │  Redis   │    No NAT, fully isolated   │
-  │  └──────────┘  └──────────┘                             │
-  │                                                         │
-  │  VPC Endpoints: S3 (Gateway), SQS, Bedrock (Interface)  │
-  └─────────────────────────────────────────────────────────┘</pre>
+  ┌──────────────────────────────────────────────────────────────┐
+  │                                                              │
+  │  Public Subnet 10.0.1.0/24          (us-east-1a/b/c)        │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+  │  │   ALB    │  │ Bastion  │  │   NAT    │                   │
+  │  │(Dashboard│  │  Host    │  │ Gateway  │                   │
+  │  └──────────┘  └──────────┘  └──────────┘                   │
+  │                                                              │
+  │  Private Subnet 10.0.10.0/24        (Processing Layer)       │
+  │  ┌──────────────────────────────────────────────────┐        │
+  │  │  Java Sectionizer App (250 EC2 units in ASG)     │        │
+  │  │  Polls SQS-2 → sectionize → send to AI          │        │
+  │  └──────────────────────────────────────────────────┘        │
+  │  ┌──────────┐  ┌──────────┐                                  │
+  │  │Dashboard │  │ Lambda   │  ← VPC Lambda for Textract       │
+  │  │ EC2 App  │  │(Textract)│    needs access to S3 + SQS     │
+  │  └──────────┘  └──────────┘                                  │
+  │                                                              │
+  │  Isolated Subnet 10.0.20.0/24      (Data Layer)              │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+  │  │  Aurora   │  │ElastiCache│  │ DynamoDB │ ← via VPC        │
+  │  │  MySQL   │  │  Redis   │  │ Endpoint │   Endpoint        │
+  │  └──────────┘  └──────────┘  └──────────┘                   │
+  │                                                              │
+  │  VPC Endpoints: S3 (Gateway), SQS, DynamoDB, Textract        │
+  └──────────────────────────────────────────────────────────────┘</pre>
                 <ul>
-                    <li><strong>Public subnet:</strong> Only ALB + Bastion + NAT Gateway. No application servers exposed to internet</li>
-                    <li><strong>Private subnet:</strong> Dashboard servers, Lambda (VPC-enabled to access RDS), GPU instances. Outbound via NAT Gateway for pulling AI models</li>
-                    <li><strong>Isolated subnet:</strong> Aurora MySQL + ElastiCache Redis. No route to internet at all &mdash; HIPAA requires patient data never touches public internet</li>
-                    <li><strong>VPC Endpoints:</strong> S3 Gateway endpoint (free, for PDF access), Interface endpoints for SQS and Bedrock (stay within AWS network, no NAT charges)</li>
-                    <li><strong>Flow Logs:</strong> Enabled on all subnets &rarr; CloudWatch Logs. HIPAA audit requirement to track all network access to PHI data</li>
+                    <li><strong>Public subnet:</strong> Only ALB (coder dashboard) + Bastion + NAT Gateway. No processing servers exposed to internet</li>
+                    <li><strong>Private subnet:</strong> 250 Java sectionizer EC2 instances in ASG, Lambda (VPC-enabled for Textract + S3 access), Dashboard app servers. Outbound via NAT Gateway</li>
+                    <li><strong>Isolated subnet:</strong> Aurora MySQL + ElastiCache Redis + DynamoDB (via VPC endpoint). No internet route &mdash; HIPAA: patient PDF data never touches public internet</li>
+                    <li><strong>VPC Endpoints:</strong> S3 Gateway (free, Lambda reads PDFs), SQS Interface (Lambda polls SQS-1, Java polls SQS-2), DynamoDB Gateway (pipeline tracking), Textract Interface (OCR calls stay in AWS network)</li>
+                    <li><strong>250 units network:</strong> Each unit consumes ~5 Mbps during Textract output processing. Private subnet sized /20 (4,096 IPs) to handle all units + future growth</li>
+                    <li><strong>Flow Logs:</strong> All subnets → CloudWatch Logs. HIPAA audit: track all network access to PHI data. Retained 1 year</li>
                 </ul>
             </div>
 
@@ -638,39 +653,46 @@ aws s3api select-object-content \
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">S3 as the Central Document Store</p>
+                <p class="arch-label">S3 — The Entry Point of the Entire Pipeline</p>
                 <pre>
-  Hospital Upload Portal
-        |
+  PIPELINE STARTS HERE:
+  Client uploads PDF → S3 → Event Notification → SQS-1 (triggers everything)
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  S3: medcode-raw-pdfs (ENTRY POINT)                         │
+  │  /client-C001/2024/03/encounter-12345.pdf                   │
+  │  SSE-KMS encrypted │ Versioning ON │ Block Public Access    │
+  │                                                             │
+  │  S3 Event: ObjectCreated → SQS-1 (Textract Queue)          │
+  │  This single event kicks off the entire 6-step pipeline     │
+  └─────────────────────────────────────────────────────────────┘
+        │
+        │  Lambda reads PDF from here via VPC Endpoint
+        │  Textract processes → extracted text back to:
         v
-  ┌─────────────────────────────────────────────┐
-  │  S3: medcode-raw-pdfs                       │
-  │  /uploads/2024/03/encounter-12345.pdf       │
-  │  SSE-KMS encrypted, versioning ON           │
-  │  S3 Event Notification → SQS Queue          │──→ Triggers processing
-  └─────────────────────────────────────────────┘
-        |  Lifecycle: 90 days → IA, 1 year → Glacier
+  ┌─────────────────────────────────────────────────────────────┐
+  │  S3: medcode-textract-output                                │
+  │  /output/encounter-12345/page-001.json                      │
+  │  Raw Textract JSON (per page), used by Java sectionizer     │
+  │  TTL Lifecycle: auto-delete after 30 days (data in DB)      │
+  └─────────────────────────────────────────────────────────────┘
+        │
         v
-  ┌─────────────────────────────────────────────┐
-  │  S3: medcode-processed-results              │
-  │  /results/2024/03/encounter-12345.json      │
-  │  { icd10: ["E11.9"], cpt: ["99213"],        │
-  │    confidence: 0.94, ai_model: "v3.2" }     │
-  └─────────────────────────────────────────────┘
-        |
-        v
-  ┌─────────────────────────────────────────────┐
-  │  S3: medcode-audit-logs                     │
-  │  CloudTrail + access logs                   │
-  │  Object Lock (WORM) for HIPAA compliance    │
-  │  7-year retention, Glacier Deep Archive     │
-  └─────────────────────────────────────────────┘</pre>
+  ┌─────────────────────────────────────────────────────────────┐
+  │  S3: medcode-audit-logs                                     │
+  │  CloudTrail + S3 access logs + processing audit trail       │
+  │  Object Lock (WORM) │ 7-year retention │ Glacier Deep       │
+  └─────────────────────────────────────────────────────────────┘
+
+  250 units processing = ~500 S3 GET/PUT per second peak
+  S3 prefix design: /client-{id}/yyyy/mm/ avoids hot partitions</pre>
                 <ul>
-                    <li><strong>Raw PDFs bucket:</strong> SSE-KMS encryption (HIPAA), versioning for audit trail, S3 Event triggers SQS when new PDF uploaded</li>
-                    <li><strong>Lifecycle policy:</strong> Raw PDFs to S3-IA after 90 days (rarely re-accessed), Glacier after 1 year, Glacier Deep Archive after 3 years (HIPAA requires 7-year retention)</li>
-                    <li><strong>Presigned URLs:</strong> Hospital portal generates 15-min presigned upload URLs &mdash; no S3 credentials exposed to client browser</li>
-                    <li><strong>Processed results:</strong> AI-extracted codes stored as JSON, replicated cross-region (CRR to us-west-2 for DR)</li>
-                    <li><strong>Audit bucket:</strong> S3 Object Lock in Compliance mode &mdash; no one (not even root) can delete logs for 7 years</li>
+                    <li><strong>S3 Event → SQS-1:</strong> Every new PDF upload triggers S3 Event Notification → sends message to SQS-1. Lambda polls SQS-1, reads PDF from S3, calls Textract for OCR</li>
+                    <li><strong>Presigned URLs:</strong> Client portal generates 15-min presigned upload URLs. No S3 credentials exposed to client browser. Scoped to specific prefix per client</li>
+                    <li><strong>Textract output bucket:</strong> Lambda stores raw Textract JSON here. Java sectionizer reads from this bucket. Auto-deleted after 30 days (final data lives in DB)</li>
+                    <li><strong>Lifecycle policy:</strong> Raw PDFs → S3-IA after 90 days, Glacier after 1 year, Deep Archive after 3 years. HIPAA requires 7-year retention</li>
+                    <li><strong>Performance:</strong> 250 units = ~500 GET/PUT per second. S3 prefix <code>/client-{id}/yyyy/mm/</code> distributes across partitions, avoids throttling</li>
+                    <li><strong>Audit bucket:</strong> S3 Object Lock in Compliance mode. No one (not even root) can delete for 7 years. Every PDF access logged</li>
                 </ul>
             </div>
 
@@ -832,38 +854,46 @@ aws sts assume-role \
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">IAM Security Architecture for HIPAA Compliance</p>
+                <p class="arch-label">IAM Roles for Each Pipeline Stage (Least Privilege)</p>
                 <pre>
-  IAM Structure:
-  ┌──────────────────────────────────────────────┐
-  │  AWS Organization                            │
-  │  SCP: Deny all outside us-east-1, us-west-2  │
-  │  SCP: Deny non-encrypted S3 uploads           │
-  │                                              │
-  │  ┌─ Account: MedCode-Prod ────────────────┐  │
-  │  │                                        │  │
-  │  │  Role: LambdaPDFProcessor              │  │
-  │  │    → s3:GetObject (raw-pdfs)           │  │
-  │  │    → sqs:ReceiveMessage                │  │
-  │  │    → bedrock:InvokeModel               │  │
-  │  │    → dynamodb:PutItem (results)        │  │
-  │  │    → Permission Boundary: MedCodeMax   │  │
-  │  │                                        │  │
-  │  │  Role: DashboardAppRole (ECS)          │  │
-  │  │    → rds:Read (via RDS Proxy)          │  │
-  │  │    → s3:GetObject (processed-results)  │  │
-  │  │                                        │  │
-  │  │  Group: MedicalCoders                  │  │
-  │  │    → Read-only dashboard access        │  │
-  │  │    → MFA required (condition)          │  │
-  │  └────────────────────────────────────────┘  │
-  └──────────────────────────────────────────────┘</pre>
+  Pipeline:  Client → S3 → SQS-1 → Lambda → SQS-2 → Java App → AI → DB
+
+  Each stage has its OWN IAM Role — minimum permissions only:
+  ┌──────────────────────────────────────────────────────────────┐
+  │                                                              │
+  │  Role: ClientUploadRole (assumed by client portal)           │
+  │    → s3:PutObject ONLY on medcode-raw-pdfs/client-{id}/*    │
+  │    → No read, no delete, scoped to their prefix only        │
+  │                                                              │
+  │  Role: LambdaTextractRole (Lambda reads SQS-1, calls OCR)   │
+  │    → sqs:ReceiveMessage (SQS-1)                             │
+  │    → s3:GetObject (raw-pdfs)                                │
+  │    → textract:AnalyzeDocument                               │
+  │    → sqs:SendMessage (SQS-2)                                │
+  │    → dynamodb:UpdateItem (pipeline-tracker status)           │
+  │                                                              │
+  │  Role: JavaSectionizerRole (250 EC2 units)                   │
+  │    → sqs:ReceiveMessage (SQS-2)                             │
+  │    → s3:GetObject (textract-output)                         │
+  │    → AI service endpoint (invoke model)                      │
+  │    → dynamodb:PutItem (sections + codes)                    │
+  │    → rds:Connect (via RDS Proxy, IAM auth)                  │
+  │                                                              │
+  │  Role: DashboardAppRole (coder review UI)                    │
+  │    → rds:Read (via RDS Proxy)                               │
+  │    → dynamodb:GetItem, Query (read pipeline status)         │
+  │    → s3:GetObject (original PDFs for coder reference)       │
+  │                                                              │
+  │  Group: MedicalCoders → MFA required, read-only dashboard   │
+  │  SCP: Deny outside us-east-1/us-west-2, deny unencrypted    │
+  └──────────────────────────────────────────────────────────────┘</pre>
                 <ul>
-                    <li><strong>Lambda role:</strong> Least privilege &mdash; only S3 read (raw PDFs), SQS consume, Bedrock invoke, DynamoDB write. Cannot access audit logs or other buckets</li>
-                    <li><strong>Permission boundary:</strong> Even if a developer attaches broader policy to Lambda role, boundary limits to S3 + SQS + Bedrock + DynamoDB only</li>
-                    <li><strong>ABAC tags:</strong> Resources tagged <code>Environment=prod</code> &mdash; dev team can only access <code>Environment=dev</code> resources</li>
-                    <li><strong>MFA enforcement:</strong> All IAM users (coders, admins) must have MFA. Policy denies all actions if <code>aws:MultiFactorAuthPresent = false</code></li>
-                    <li><strong>Cross-account:</strong> Hospital partner accounts assume <code>PDFUploadRole</code> with ExternalId to upload PDFs &mdash; prevents confused deputy</li>
+                    <li><strong>Per-stage roles:</strong> Lambda has different role than Java app than Dashboard. Each can only access the services it needs for its specific pipeline step</li>
+                    <li><strong>Client upload scoping:</strong> Each client can only PutObject to their own prefix <code>/client-{id}/*</code>. IAM policy variable <code>${aws:PrincipalTag/clientId}</code> enforces this</li>
+                    <li><strong>Java app role (250 units):</strong> Can read SQS-2, read Textract output from S3, invoke AI, write results to DynamoDB and Aurora via RDS Proxy with IAM auth</li>
+                    <li><strong>Permission boundary:</strong> All pipeline roles have MedCodeBoundary &mdash; limits to S3, SQS, DynamoDB, Textract, RDS only. Even if developer misconfigures, no EC2/IAM/billing access</li>
+                    <li><strong>Cross-account:</strong> Hospital partner accounts assume <code>ClientUploadRole</code> with ExternalId to upload PDFs. Prevents confused deputy attack</li>
+                    <li><strong>MFA enforcement:</strong> All human users (coders, admins) require MFA. Service roles use instance profiles (no MFA needed)</li>
                 </ul>
             </div>
 
@@ -963,40 +993,40 @@ Health check type: ELB  # Use LB health (not just EC2)</pre>
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">Load Balancing & Auto Scaling for the Coding Dashboard</p>
+                <p class="arch-label">ALB for Dashboard + ASG for 250 Java Processing Units</p>
                 <pre>
-  Medical Coders (Browser)
-        |
-        v
-  ┌──────────────────────────────────────────────┐
-  │  ALB (medcode-dashboard-alb)                 │
-  │  Listener: HTTPS :443 (ACM cert)             │
-  │  HTTP :80 → redirect HTTPS                   │
-  │                                              │
-  │  Rules:                                      │
-  │   /api/*     → Target Group: API servers     │
-  │   /dashboard → Target Group: Frontend        │
-  │   /health    → Fixed 200 response            │
-  └──────────────────────────────────────────────┘
-        |                    |
-        v                    v
-  ┌──────────┐        ┌──────────┐
-  │ ASG: API │        │ASG: Web  │
-  │ min:2    │        │ min:2    │
-  │ max:8    │        │ max:6    │
-  │ Target   │        │ Target   │
-  │ Track:   │        │ Track:   │
-  │ CPU 60%  │        │ CPU 50%  │
-  └──────────┘        └──────────┘
+  TWO SCALING STRATEGIES IN THE PIPELINE:
 
-  Scheduled: Scale API to min:4 at 8am EST (coders start)
-             Scale down to min:2 at 8pm EST</pre>
+  1. DASHBOARD (Coder-Facing):
+  Medical Coders → ALB (HTTPS) → Dashboard EC2 ASG
+  ┌──────────────────────────────────────────────────┐
+  │  ALB: medcode-dashboard-alb                      │
+  │  /api/*      → TG: API servers (min:2, max:8)    │
+  │  /dashboard  → TG: Frontend    (min:2, max:6)    │
+  │  /health     → Fixed 200                         │
+  │  WAF attached for HIPAA                          │
+  └──────────────────────────────────────────────────┘
+
+  2. PROCESSING (250 Java Sectionizer Units):
+  SQS-2 → Java App ASG (scales based on queue depth)
+  ┌──────────────────────────────────────────────────┐
+  │  ASG: medcode-sectionizer                        │
+  │  min: 50  │ desired: 250  │ max: 400             │
+  │                                                  │
+  │  Scaling metric: SQS-2 ApproximateNumberOf       │
+  │  Messages / RunningInstances                     │
+  │  Target: 10 messages per instance                │
+  │                                                  │
+  │  When queue backs up → scale OUT to 400          │
+  │  When queue drains  → scale IN to 50             │
+  │  Spot Instances (70% savings, SQS retries)       │
+  └──────────────────────────────────────────────────┘</pre>
                 <ul>
-                    <li><strong>ALB chosen over NLB:</strong> Need Layer 7 path-based routing (/api vs /dashboard), WAF integration for HIPAA, and HTTPS termination</li>
-                    <li><strong>Two target groups:</strong> API servers (handle coding queries, PDF status) and Frontend servers (serve React dashboard). Independent scaling</li>
-                    <li><strong>Scaling pattern:</strong> Target tracking (CPU 60%) + scheduled scaling aligned with coder work hours (8am-8pm EST peak)</li>
-                    <li><strong>Health checks:</strong> /health endpoint checks DB connectivity + S3 access. Unhealthy instances replaced automatically</li>
-                    <li><strong>Lifecycle hooks:</strong> Scale-in hook drains active coder sessions (deregistration delay: 120s) before terminating instance</li>
+                    <li><strong>ALB for dashboard:</strong> Path-based routing (/api vs /dashboard), WAF for HIPAA, HTTPS termination with ACM cert. Scheduled scaling: min 4 at 8am EST, min 2 at 8pm</li>
+                    <li><strong>ASG for 250 Java units:</strong> Scales based on <strong>SQS queue depth</strong> (not CPU). Custom metric: ApproximateNumberOfMessages / InService instances. Target: 10 messages per instance. Queue backs up = scale out</li>
+                    <li><strong>Spot + SQS resilience:</strong> Java units run on Spot (70% savings). If Spot interrupted, SQS visibility timeout expires → message returns to queue → another instance picks it up. Zero data loss</li>
+                    <li><strong>Mixed instances:</strong> Launch Template with c5.xlarge, m5.xlarge, r5.xlarge — ASG picks cheapest available Spot pool. Capacity-optimized allocation strategy</li>
+                    <li><strong>Lifecycle hooks:</strong> Scale-in: complete current SQS message processing before termination. Scale-out: pull JAR from S3 + register with monitoring before joining</li>
                 </ul>
             </div>
 
@@ -1091,37 +1121,40 @@ Alias: example.com → my-lb-123.us-east-1.elb.amazonaws.com
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">DNS & Routing for Multi-Region Medical Coding</p>
+                <p class="arch-label">DNS for Client Portal, Dashboard & Pipeline Services</p>
                 <pre>
   Route 53 Hosted Zone: medcode.healthcare.com
-  ┌──────────────────────────────────────────────┐
-  │                                              │
-  │  medcode.healthcare.com                      │
-  │    Type: Alias → ALB (us-east-1)             │
-  │    Routing: Failover (Primary)               │
-  │    Health Check: HTTPS /health → 200         │
-  │                                              │
-  │  medcode.healthcare.com                      │
-  │    Type: Alias → ALB (us-west-2)             │
-  │    Routing: Failover (Secondary)             │
-  │                                              │
-  │  api.medcode.healthcare.com                  │
-  │    Type: Alias → API Gateway                 │
-  │    Routing: Latency-based                    │
-  │                                              │
-  │  uploads.medcode.healthcare.com              │
-  │    Type: CNAME → S3 presigned URL endpoint   │
-  │                                              │
-  └──────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │                                                              │
+  │  medcode.healthcare.com (Coder Dashboard)                    │
+  │    Alias → ALB (us-east-1) │ Failover Primary               │
+  │    Health Check: /health (checks DB + SQS + S3 connectivity) │
+  │                                                              │
+  │  medcode.healthcare.com (DR)                                 │
+  │    Alias → ALB (us-west-2) │ Failover Secondary              │
+  │                                                              │
+  │  upload.medcode.healthcare.com (Client PDF Upload Portal)    │
+  │    Alias → API Gateway │ Clients upload PDFs here            │
+  │    Generates presigned S3 URLs for direct upload             │
+  │                                                              │
+  │  status.medcode.healthcare.com (Pipeline Status API)         │
+  │    Alias → API Gateway │ Downstream apps check coding status │
+  │                                                              │
+  │  Private Hosted Zone: internal.medcode.local                 │
+  │    aurora.internal.medcode.local → Aurora writer endpoint     │
+  │    redis.internal.medcode.local  → ElastiCache endpoint      │
+  │    sqs.internal.medcode.local    → VPC endpoint for SQS      │
+  └──────────────────────────────────────────────────────────────┘
 
-  Health Check: HTTPS to /health every 30s
-  If primary fails → auto-failover to us-west-2 (~60s)</pre>
+  Client uploads PDF via upload.medcode.healthcare.com
+                  → API Gateway → Lambda → presigned URL → S3
+                  → S3 Event → SQS-1 → pipeline starts</pre>
                 <ul>
-                    <li><strong>Failover routing:</strong> Primary in us-east-1, standby in us-west-2. If primary ALB health check fails, DNS auto-routes all coders to DR region</li>
-                    <li><strong>Alias records:</strong> Used for ALB and API Gateway (free queries, works at zone apex). No CNAME limitations</li>
-                    <li><strong>Private hosted zone:</strong> <code>internal.medcode.local</code> resolves Aurora endpoint, ElastiCache endpoint within VPC only</li>
-                    <li><strong>TTL strategy:</strong> 60s TTL for failover records (fast switchover), 300s for stable records (API subdomain)</li>
-                    <li><strong>Health check chain:</strong> Route 53 checks ALB → ALB checks EC2 → EC2 checks DB connectivity. Full stack awareness</li>
+                    <li><strong>Client upload domain:</strong> <code>upload.medcode.healthcare.com</code> → API Gateway. Clients hit this to upload PDFs. Gateway generates presigned URL, client uploads directly to S3</li>
+                    <li><strong>Dashboard failover:</strong> Primary us-east-1, DR us-west-2. Health check validates full stack (DB + SQS + S3). Auto-failover in ~60s if primary region dies</li>
+                    <li><strong>Status API:</strong> Downstream applications poll <code>status.medcode.healthcare.com</code> to check if coding is complete. Reads from DynamoDB pipeline-tracker</li>
+                    <li><strong>Private hosted zone:</strong> 250 Java units resolve <code>aurora.internal.medcode.local</code> for DB access. No public DNS exposure for data layer</li>
+                    <li><strong>TTL strategy:</strong> 60s for failover records (fast DR switch), 300s for upload/status APIs (stable endpoints)</li>
                 </ul>
             </div>
 
@@ -1235,39 +1268,42 @@ Read Replica:
 
             <div class="project-block">
                 <h4>In Your Project: MedCode AI Platform</h4>
-                <p class="arch-label">Aurora MySQL as the Core Medical Coding Database</p>
+                <p class="arch-label">Aurora MySQL — Final Destination for AI-Generated Medical Codes</p>
                 <pre>
-  ┌─────────────────────────────────────────────────────┐
-  │  Aurora MySQL Cluster: medcode-prod                 │
-  │                                                     │
-  │  Writer Instance (db.r6g.xlarge)                    │
-  │    ← Dashboard writes: save coder reviews,          │
-  │      finalized codes, audit entries                  │
-  │    ← Lambda writes: AI-extracted codes, confidence  │
-  │    ← Connected via RDS Proxy (connection pooling)   │
-  │                                                     │
-  │  Reader Instance x2 (db.r6g.large)                  │
-  │    ← Dashboard reads: display encounters,           │
-  │      search patient history, reporting queries       │
-  │    ← Analytics team: monthly accuracy reports        │
-  │                                                     │
-  │  Aurora Serverless v2 Reader (0.5-8 ACU)            │
-  │    ← Burst capacity for month-end reporting         │
-  │      Auto-scales when analytics queries spike        │
-  │                                                     │
-  │  Global Database → us-west-2 (DR)                   │
-  │    ← Replication lag: < 1 second                    │
-  │    ← Failover RTO: < 1 min, RPO: < 1s              │
-  └─────────────────────────────────────────────────────┘
+  Pipeline end: Java App → AI Coding → DB (HERE) → Downstream Apps
 
-  Lambda (1000 concurrent) → RDS Proxy → Writer (50 connections)
-  Without Proxy: 1000 connections would crash the DB</pre>
+  ┌──────────────────────────────────────────────────────────────┐
+  │  Aurora MySQL Cluster: medcode-prod                          │
+  │                                                              │
+  │  Writer (db.r6g.xlarge):                                     │
+  │    ← Java App (250 units) writes finalized codes             │
+  │      { encounter_id, icd10[], cpt[], hcpcs[],               │
+  │        confidence, ai_model, sections, coder_id }            │
+  │    ← Dashboard writes: coder reviews, approvals, overrides   │
+  │    ← All via RDS Proxy (250 units = 250 connections pooled)  │
+  │                                                              │
+  │  Reader x2 (db.r6g.large):                                   │
+  │    ← Dashboard reads: encounter list, code review, search    │
+  │    ← Downstream apps: pull finalized codes for billing       │
+  │    ← Analytics: accuracy reports, coder productivity         │
+  │                                                              │
+  │  Serverless v2 Reader (0.5-8 ACU):                           │
+  │    ← Month-end reporting bursts (all clients at once)        │
+  │                                                              │
+  │  Global Database → us-west-2 (DR)                            │
+  │    replication < 1s │ failover RTO < 1 min                   │
+  └──────────────────────────────────────────────────────────────┘
+
+  250 Java units + Lambda ──→ RDS Proxy (pool: ~100 conn)
+                              ──→ Aurora Writer
+  Without Proxy: 250+ simultaneous connections overwhelm DB</pre>
                 <ul>
-                    <li><strong>RDS Proxy essential:</strong> Lambda processes PDFs at scale (1000+ concurrent). Without proxy, each Lambda opens a DB connection, exhausting <code>max_connections</code></li>
-                    <li><strong>Multi-AZ writer:</strong> Auto-failover in ~35s. Patient coding data must be available 24/7 &mdash; hospitals can't wait</li>
-                    <li><strong>Serverless v2 reader:</strong> Scales from 0.5 to 8 ACU for month-end reporting bursts. Pays nothing during off-hours</li>
-                    <li><strong>Encryption:</strong> KMS-encrypted at rest (HIPAA). TLS in transit enforced via <code>require_secure_transport=ON</code> parameter</li>
-                    <li><strong>Backups:</strong> 35-day automated retention + manual pre-deployment snapshots. PITR to any second for accidental data corruption recovery</li>
+                    <li><strong>RDS Proxy critical:</strong> 250 Java sectionizer units + Lambda all write to Aurora. Without proxy, 250+ simultaneous connections exhaust <code>max_connections</code>. Proxy pools to ~100 real DB connections</li>
+                    <li><strong>What gets stored:</strong> Final AI-generated codes (ICD-10, CPT, HCPCS), confidence scores, section text references, coder review status, audit trail (who approved, when, what changed)</li>
+                    <li><strong>Downstream supply:</strong> Other applications (billing, claims, reporting) read finalized codes from Aurora reader endpoint. Decoupled from processing pipeline</li>
+                    <li><strong>Serverless v2 reader:</strong> Month-end all clients request reports simultaneously. Burst from 0.5 to 8 ACU automatically, no manual scaling</li>
+                    <li><strong>Encryption:</strong> KMS at rest (HIPAA), TLS in transit via <code>require_secure_transport=ON</code>. Java app connects via IAM auth through RDS Proxy</li>
+                    <li><strong>Backups:</strong> 35-day retention + pre-deployment snapshots. PITR to any second — critical when 250 units processing concurrently, one bad deployment could corrupt data</li>
                 </ul>
             </div>
 
