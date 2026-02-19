@@ -128,9 +128,9 @@
             <a href="#concept-2">2. VPC & Networking</a>
             <a href="#concept-3">3. S3 & Storage</a>
             <a href="#concept-4">4. IAM & Security</a>
-            <a href="#concept-5" class="pending">5. ELB & Auto Scaling</a>
-            <a href="#concept-6" class="pending">6. Route 53 & DNS</a>
-            <a href="#concept-7" class="pending">7. RDS & Aurora</a>
+            <a href="#concept-5">5. ELB & Auto Scaling</a>
+            <a href="#concept-6">6. Route 53 & DNS</a>
+            <a href="#concept-7">7. RDS & Aurora</a>
             <a href="#concept-8" class="pending">8. DynamoDB</a>
             <a href="#concept-9" class="pending">9. Lambda & Serverless</a>
             <a href="#concept-10" class="pending">10. API Gateway</a>
@@ -758,6 +758,297 @@ aws sts assume-role \
                 <div class="q">
                     <div class="question">Q24: How would you secure the root account and set up IAM for a new AWS account?</div>
                     <div class="answer"><strong>Root account:</strong> (1) Enable MFA immediately (hardware key preferred). (2) Delete root access keys. (3) Create a strong password and store securely. (4) Use root only for billing/account-level tasks. <strong>IAM setup:</strong> (1) Create an Admin IAM user/role (not root). (2) Enable <strong>IAM password policy</strong> (min length, complexity, rotation). (3) Create groups by function (Admins, Developers, ReadOnly). (4) Enforce MFA for all users via policy condition. (5) Enable <strong>CloudTrail</strong> in all regions for audit. (6) Set up <strong>AWS Organizations</strong> with SCPs. (7) Enable <strong>IAM Access Analyzer</strong> for external access findings. (8) Use SSO/Identity Center for enterprise users instead of individual IAM users.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Concept 5: ELB & Auto Scaling -->
+        <div class="concept" id="concept-5">
+            <h2>5. ELB & Auto Scaling</h2>
+            <span class="tag">High Availability</span>
+
+            <div class="point">
+                <h3>Elastic Load Balancer Types</h3>
+                <p><strong>ALB (Application Load Balancer):</strong> Layer 7 (HTTP/HTTPS). Path-based &amp; host-based routing, WebSocket support, gRPC, native HTTP/2, integrates with WAF. Best for microservices &amp; containers. <strong>NLB (Network Load Balancer):</strong> Layer 4 (TCP/UDP/TLS). Ultra-low latency (~100&mu;s), millions of requests/sec, static IP per AZ, preserves source IP. Best for real-time gaming, IoT, financial apps. <strong>GLB (Gateway Load Balancer):</strong> Layer 3 (IP). Routes traffic through virtual appliances (firewalls, IDS/IPS) using GENEVE protocol. <strong>CLB (Classic):</strong> Legacy &mdash; avoid for new workloads.</p>
+            </div>
+
+            <div class="point">
+                <h3>Target Groups & Health Checks</h3>
+                <p>Targets can be: EC2 instances, IP addresses, Lambda functions (ALB only), or other ALBs. <strong>Health checks:</strong> LB periodically pings targets (HTTP path, TCP port, or gRPC). Configurable: interval (5-300s), threshold (2-10 consecutive checks), timeout. Unhealthy targets stop receiving traffic but remain registered. <strong>Deregistration delay</strong> (default 300s) &mdash; allows in-flight requests to complete before removing target.</p>
+                <pre>// ALB health check config
+Target Group:
+  Health check path: /health
+  Healthy threshold: 3
+  Unhealthy threshold: 2
+  Interval: 30s
+  Timeout: 5s
+  Success codes: 200-299</pre>
+            </div>
+
+            <div class="point">
+                <h3>ALB Advanced Features</h3>
+                <p><strong>Path-based routing:</strong> <code>/api/*</code> &rarr; API service, <code>/images/*</code> &rarr; image service. <strong>Host-based routing:</strong> <code>api.example.com</code> &rarr; API targets, <code>web.example.com</code> &rarr; web targets. <strong>Sticky sessions:</strong> Cookie-based affinity (application cookie or LB-generated AWSALB cookie), duration 1s-7days. <strong>Cross-zone load balancing:</strong> Distributes evenly across all targets in all AZs (enabled by default on ALB). <strong>SSL/TLS termination:</strong> Offload decryption at ALB using ACM certificates, forward HTTP to backends.</p>
+            </div>
+
+            <div class="point">
+                <h3>Auto Scaling Groups (ASG)</h3>
+                <p>Automatically adjusts EC2 instance count based on demand. Components: <strong>Launch Template</strong> (AMI, instance type, key pair, SGs, user data &mdash; replaces Launch Config), <strong>ASG config</strong> (min/max/desired capacity, VPC/subnets, target group attachment). ASG ensures: minimum instances always running, scales out for demand, scales in to save cost, auto-replaces unhealthy instances.</p>
+                <pre>// ASG configuration
+Min capacity: 2        # Never below 2
+Desired capacity: 4    # Current target
+Max capacity: 10       # Never above 10
+Default cooldown: 300s # Wait after scaling action
+Health check type: ELB  # Use LB health (not just EC2)</pre>
+            </div>
+
+            <div class="point">
+                <h3>Scaling Policies</h3>
+                <p><strong>Target Tracking:</strong> "Keep average CPU at 50%" &mdash; ASG auto-adjusts. Simplest, most common. Predefined metrics: CPU, request count per target, network in/out. <strong>Step Scaling:</strong> Add/remove specific count based on alarm thresholds (e.g., CPU 60-70% add 1, 70-80% add 2, 80%+ add 3). <strong>Scheduled Scaling:</strong> Set capacity for predictable patterns (e.g., min 10 at 9am Mon-Fri, min 2 at 7pm). <strong>Predictive Scaling:</strong> ML-based, analyzes 14-day history to forecast and pre-scale.</p>
+            </div>
+
+            <div class="point">
+                <h3>Cooldown, Warm-up & Lifecycle Hooks</h3>
+                <p><strong>Cooldown period</strong> (default 300s): After a scaling action, ASG ignores new alarms to let metrics stabilize. <strong>Instance warm-up:</strong> New instances excluded from ASG metrics until warm-up completes (prevents premature scale-in). <strong>Lifecycle hooks:</strong> Pause instance at <code>Pending:Wait</code> (scale-out) or <code>Terminating:Wait</code> (scale-in) to run custom actions (install software, drain connections, backup logs). Timeout up to 48h. Integrate with EventBridge/SNS/SQS for automation.</p>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q25: When would you choose ALB vs NLB?</div>
+                    <div class="answer"><strong>ALB</strong> when you need: Layer 7 routing (path/host-based), WebSocket/gRPC support, WAF integration, Lambda targets, authentication (Cognito/OIDC), HTTP header-based routing. Best for: microservices, REST APIs, web applications. <strong>NLB</strong> when you need: ultra-low latency (&lt;100&mu;s vs ALB's ~400ms), millions of concurrent connections, static IPs (whitelisting), TCP/UDP passthrough, preserve source IP natively, non-HTTP protocols (MQTT, gaming). Best for: real-time systems, financial trading, IoT ingestion, TCP load balancing.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q26: How does cross-zone load balancing work and why does it matter?</div>
+                    <div class="answer">Without cross-zone: each AZ's LB node distributes only to targets in its own AZ. If AZ-A has 2 instances and AZ-B has 8, each instance in AZ-A gets 25% traffic while AZ-B instances get 6.25% each &mdash; <strong>uneven load</strong>. With cross-zone: LB distributes evenly across ALL targets in ALL AZs regardless of AZ distribution. Each of the 10 instances gets 10%. <strong>ALB:</strong> always enabled, free. <strong>NLB:</strong> disabled by default, charges apply for inter-AZ data. <strong>CLB:</strong> disabled by default, free. Enable it unless inter-AZ data costs are a concern.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q27: Explain sticky sessions. When are they useful and what are the drawbacks?</div>
+                    <div class="answer"><strong>Sticky sessions</strong> bind a user to the same target for the session duration. ALB uses cookies: <strong>Application cookie</strong> (custom name, your app sets it) or <strong>LB cookie</strong> (AWSALB, auto-generated). Duration: 1 second to 7 days. <strong>Use when:</strong> legacy apps storing session in memory, WebSocket connections, shopping carts not in shared cache. <strong>Drawbacks:</strong> uneven load distribution (popular sessions overload one instance), reduced fault tolerance (if instance fails, session is lost), prevents effective auto-scaling. <strong>Better alternative:</strong> externalize session state to ElastiCache Redis or DynamoDB &mdash; eliminates need for sticky sessions.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q28: What scaling policy would you choose for different scenarios?</div>
+                    <div class="answer"><strong>Target Tracking</strong> for most workloads &mdash; "maintain CPU at 50%" or "1000 requests/target." Simplest, auto-creates scale-out and scale-in alarms. <strong>Step Scaling</strong> for fine-grained control &mdash; different scaling amounts at different thresholds (add 1 at 60% CPU, add 3 at 80%). <strong>Scheduled Scaling</strong> for predictable patterns &mdash; office hours (9am scale up, 7pm scale down), Black Friday (pre-scale to 50 instances). <strong>Predictive Scaling</strong> for cyclic workloads &mdash; uses ML to analyze 14-day history, pre-provisions before traffic spike. <strong>Combination:</strong> use Predictive for baseline + Target Tracking for unexpected spikes.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q29: How do ASG lifecycle hooks work and what are common use cases?</div>
+                    <div class="answer">Lifecycle hooks <strong>pause</strong> an instance during launch or termination. <strong>Scale-out hook (Pending:Wait):</strong> instance launches but doesn't join target group until hook completes. Use cases: install monitoring agents, pull configuration from S3, register with service discovery, run health validation. <strong>Scale-in hook (Terminating:Wait):</strong> instance is marked for termination but stays running. Use cases: drain connections gracefully, push logs to S3, deregister from service discovery, take final backup. Hooks send notifications to EventBridge/SNS/SQS. Timeout: default 1 hour, max 48 hours. Call <code>complete-lifecycle-action</code> to proceed or <code>record-lifecycle-action-heartbeat</code> to extend.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q30: How does ASG handle unhealthy instances and what health check types are available?</div>
+                    <div class="answer"><strong>EC2 health check (default):</strong> Only checks EC2 system status (hardware/hypervisor issues). Instance marked unhealthy only on: stopped, terminated, impaired status. <strong>ELB health check:</strong> Uses the LB's health check (HTTP request to /health). More thorough &mdash; catches application-level failures. <strong>Custom health check:</strong> Use <code>set-instance-health</code> API for external monitoring integration. When unhealthy: ASG terminates the instance and launches a replacement to maintain desired capacity. <strong>Grace period</strong> (default 300s): new instances exempt from health checks during startup. Set it long enough for your app to fully boot and pass health checks.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q31: Design a highly available web application using ALB + ASG.</div>
+                    <div class="answer"><strong>Architecture:</strong> (1) ALB spanning 3 AZs with HTTPS listener (ACM cert) + HTTP&rarr;HTTPS redirect. (2) ASG across 3 AZs with Launch Template (Amazon Linux 2, user data for app bootstrap). (3) Min: 2, Desired: 3, Max: 12 for HA across AZs. (4) Target Tracking at 60% CPU + Predictive Scaling. (5) ELB health checks (not just EC2). (6) Connection draining: 30s deregistration delay. (7) SNS notifications on scaling events for ops. (8) WAF on ALB for security. <strong>Why 3 AZs:</strong> if one AZ fails, 2 remain &mdash; with min 2, at least 1 instance per surviving AZ.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q32: What is the difference between Launch Template and Launch Configuration?</div>
+                    <div class="answer"><strong>Launch Configuration (legacy):</strong> Immutable (must create new one for changes), no versioning, limited features, being deprecated. <strong>Launch Template (recommended):</strong> Supports versioning (v1, v2... with default version), mix instance types (capacity-optimized Spot), T2/T3 unlimited, placement groups, capacity reservations, Dedicated Hosts. Can launch On-Demand + Spot in same ASG with mixed instances policy. Supports multiple instance types for Spot flexibility (if c5.large unavailable, try m5.large, r5.large). Always use Launch Templates for new workloads.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Concept 6: Route 53 & DNS -->
+        <div class="concept" id="concept-6">
+            <h2>6. Route 53 & DNS</h2>
+            <span class="tag">DNS & Routing</span>
+
+            <div class="point">
+                <h3>DNS Fundamentals & Hosted Zones</h3>
+                <p><strong>Route 53</strong> is AWS's highly available DNS service (SLA 100%). Named after DNS port 53. <strong>Hosted Zone:</strong> Container for DNS records for a domain. <strong>Public hosted zone:</strong> resolves domain from the internet (<code>example.com</code>). <strong>Private hosted zone:</strong> resolves within VPCs only (<code>internal.corp</code>). Cost: $0.50/month per hosted zone + $0.40 per million queries. Route 53 also acts as domain registrar (buy domains directly).</p>
+            </div>
+
+            <div class="point">
+                <h3>Record Types</h3>
+                <p><strong>A:</strong> Maps hostname to IPv4 address (<code>example.com &rarr; 1.2.3.4</code>). <strong>AAAA:</strong> Maps hostname to IPv6. <strong>CNAME:</strong> Maps hostname to another hostname (<code>app.example.com &rarr; lb.amazonaws.com</code>). <strong>Cannot</strong> be used at zone apex (naked domain). <strong>Alias:</strong> AWS-specific &mdash; maps hostname to AWS resource (ELB, CloudFront, S3, API Gateway). <strong>Free queries, works at zone apex</strong>. Always prefer Alias over CNAME for AWS resources. <strong>MX:</strong> Mail server. <strong>TXT:</strong> Text record (SPF, domain verification). <strong>NS:</strong> Name servers for the hosted zone.</p>
+                <pre>// Alias vs CNAME
+CNAME: app.example.com → my-lb-123.us-east-1.elb.amazonaws.com
+  ❌ Cannot use for example.com (zone apex)
+  ❌ Charged per query
+
+Alias: example.com → my-lb-123.us-east-1.elb.amazonaws.com
+  ✅ Works at zone apex
+  ✅ Free queries for AWS resources
+  ✅ Native health check integration</pre>
+            </div>
+
+            <div class="point">
+                <h3>Routing Policies</h3>
+                <p><strong>Simple:</strong> Single resource, no health checks. Returns all values (client picks randomly). <strong>Weighted:</strong> Split traffic by percentage (70% v1, 30% v2). Great for blue-green deployments. Weight 0 = no traffic. <strong>Latency-based:</strong> Routes to region with lowest latency for the user. AWS maintains latency database. <strong>Failover:</strong> Active-passive. Primary with health check &rarr; if fails, routes to secondary. <strong>Geolocation:</strong> Route based on user's location (continent/country/state). Must set default record. <strong>Geoproximity:</strong> Route based on geographic distance with bias to shift traffic. <strong>Multi-value:</strong> Returns up to 8 healthy records (client-side load balancing with health checks).</p>
+            </div>
+
+            <div class="point">
+                <h3>Health Checks</h3>
+                <p>Route 53 health checkers (15 globally) monitor endpoints. Types: <strong>Endpoint check:</strong> HTTP/HTTPS/TCP to IP or domain (configurable path, interval 10s or 30s, threshold). <strong>Calculated check:</strong> Combine multiple checks with AND/OR/NOT logic. <strong>CloudWatch alarm check:</strong> Monitor private resources (can't be reached by public health checkers) via CloudWatch metrics/alarms. Health check passes if &ge;18% of checkers report healthy. Integrate with routing policies to automatically failover unhealthy targets.</p>
+            </div>
+
+            <div class="point">
+                <h3>Domain Registration & DNS Migration</h3>
+                <p><strong>Register domains</strong> directly in Route 53 (auto-creates hosted zone). Transfer domains from other registrars (unlock at source, get auth code, initiate transfer). <strong>DNS migration:</strong> (1) Create hosted zone in Route 53. (2) Copy all records from old provider. (3) Update NS records at registrar to Route 53 nameservers. (4) Lower TTL before migration (300s), restore after. <strong>DNSSEC:</strong> Route 53 supports DNSSEC signing for public hosted zones &mdash; protects against DNS spoofing. Enable via KMS key (must be in us-east-1).</p>
+            </div>
+
+            <div class="point">
+                <h3>Route 53 + ELB Architecture Patterns</h3>
+                <p><strong>Multi-region active-active:</strong> Latency-based routing to ALBs in multiple regions. Each ALB has health check. User routed to lowest-latency healthy region. <strong>Multi-region active-passive:</strong> Failover routing &mdash; primary region (active) with health check, secondary region (passive) receives traffic only on failure. <strong>Weighted canary:</strong> 95% to current version, 5% to new version. Gradually shift weight. <strong>Geo-restricted:</strong> Geolocation routing to serve different content per country (compliance, localization).</p>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q33: What is the difference between CNAME and Alias records in Route 53?</div>
+                    <div class="answer"><strong>CNAME:</strong> Standard DNS record that maps one hostname to another. Works for non-root domains only (<code>app.example.com</code>). Cannot be used at zone apex (<code>example.com</code>). Charged per query. Works with any DNS target. <strong>Alias:</strong> AWS proprietary extension. Maps to AWS resources (ELB, CloudFront, S3 website, API Gateway, another Route 53 record). Works at zone apex. Free queries for AWS targets. Auto-detects IP changes of the target resource. Supports native health check evaluation. <strong>Rule of thumb:</strong> Always use Alias for AWS resources; CNAME only for non-AWS external targets.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q34: Explain all Route 53 routing policies with use cases.</div>
+                    <div class="answer"><strong>Simple:</strong> Single endpoint, basic DNS (small app, no failover needed). <strong>Weighted:</strong> Percentage-based split &mdash; blue-green (90/10), A/B testing (50/50), gradual migration. <strong>Latency:</strong> Route to lowest-latency AWS region &mdash; global apps with multi-region deployments. <strong>Failover:</strong> Active/passive DR &mdash; primary with health check, auto-failover to standby. <strong>Geolocation:</strong> Continent/country-based &mdash; compliance (EU data stays in EU), localized content, restrict access by region. <strong>Geoproximity:</strong> Distance-based with bias &mdash; shift traffic between regions without moving infrastructure. <strong>Multi-value:</strong> Return up to 8 healthy IPs &mdash; client-side load balancing with health checks (not a replacement for ELB).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q35: How do Route 53 health checks work for private resources?</div>
+                    <div class="answer">Route 53 health checkers are <strong>public</strong> &mdash; they cannot reach private IPs in VPCs. <strong>Solution:</strong> Create a <strong>CloudWatch metric</strong> that monitors the private resource (e.g., custom metric from an agent, or RDS/ElastiCache CloudWatch metrics). Create a <strong>CloudWatch alarm</strong> on that metric. Create a Route 53 <strong>health check of type "CloudWatch Alarm"</strong>. When the alarm triggers (ALARM state), Route 53 marks the endpoint unhealthy and failover routing kicks in. This pattern lets you health-check databases, internal services, or any private infrastructure.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q36: How would you design multi-region failover with Route 53?</div>
+                    <div class="answer"><strong>Active-Passive:</strong> (1) Deploy app in us-east-1 (primary) and eu-west-1 (standby). (2) Create health check on primary ALB. (3) Failover routing: primary record (us-east-1 ALB, health check attached), secondary record (eu-west-1 ALB). (4) On primary failure, traffic auto-routes to secondary. <strong>Active-Active:</strong> (1) Deploy in both regions with independent databases (or Aurora Global). (2) Latency-based routing to both ALBs, each with health checks. (3) Users always hit lowest-latency healthy region. (4) If one region fails, all traffic goes to the other. <strong>RTO:</strong> Active-Passive ~60-120s (DNS TTL), Active-Active ~30-60s.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q37: What is the TTL in DNS and how does it impact failover?</div>
+                    <div class="answer"><strong>TTL (Time to Live):</strong> How long DNS resolvers and clients cache the record before querying again. High TTL (86400s/24h): fewer DNS queries, lower cost, but slow failover &mdash; clients use stale IP for up to 24h after change. Low TTL (60s): fast failover, but more DNS queries and cost. <strong>Best practices:</strong> Set TTL to 60s before planned changes/migrations. Use 300s (5min) as default for production. Alias records: TTL auto-set by AWS (typically 60s for ELB). <strong>Failover impact:</strong> Even with 60s TTL, some clients/resolvers ignore TTL &mdash; actual failover can take 1-2 minutes. For instant failover, use Global Accelerator (anycast IP, no DNS dependency).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q38: Explain the difference between Geolocation and Geoproximity routing.</div>
+                    <div class="answer"><strong>Geolocation:</strong> Routes based on <em>user's location</em> (continent, country, or US state). Exact match only &mdash; if no record matches user's location, falls back to <strong>default record</strong> (must set one). Use case: compliance (EU users &rarr; EU servers), localized content, access restriction. <strong>Geoproximity:</strong> Routes based on <em>geographic distance</em> between user and resource, with adjustable <strong>bias</strong> (-99 to +99). Positive bias expands the region's catchment area (attracts more traffic). Use case: gradually shift traffic from one region to another without changing infrastructure. Requires <strong>Route 53 Traffic Flow</strong>. Key difference: Geolocation is binary (match/no-match), Geoproximity is distance-based with tunable bias.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q39: How does Route 53 integrate with other AWS services?</div>
+                    <div class="answer"><strong>ELB:</strong> Alias record to ALB/NLB (free, auto-updates IP). <strong>CloudFront:</strong> Alias to distribution for CDN. <strong>S3:</strong> Alias to S3 website endpoint (bucket name must match domain). <strong>API Gateway:</strong> Alias to custom domain. <strong>Elastic Beanstalk:</strong> Alias to environment. <strong>VPC:</strong> Private hosted zones for internal DNS resolution. <strong>Health checks + CloudWatch:</strong> monitor endpoints, trigger alarms. <strong>ACM:</strong> DNS validation for SSL certificates (CNAME record auto-created). <strong>AWS Global Accelerator:</strong> not Route 53 per se, but alternative for anycast-based global routing with instant failover (no DNS dependency).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q40: You have a global application. How do you minimize latency for users worldwide?</div>
+                    <div class="answer"><strong>Option 1 &mdash; Route 53 Latency Routing + Multi-Region:</strong> Deploy app in 3+ regions (us-east-1, eu-west-1, ap-southeast-1). Latency-based routing sends users to nearest region. Each region has ALB + ASG. Database: Aurora Global Database (read replicas in each region, &lt;1s replication). <strong>Option 2 &mdash; CloudFront + Single Region:</strong> If app is mostly read-heavy, put CloudFront in front. Edge caches serve static/dynamic content globally. Origin in one region. <strong>Option 3 &mdash; Global Accelerator:</strong> Anycast IPs route over AWS backbone to nearest region. Better than Route 53 for TCP/UDP workloads and instant failover. <strong>Best practice:</strong> Combine all three &mdash; CloudFront for static, Global Accelerator for API, Route 53 latency for regional backends.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Concept 7: RDS & Aurora -->
+        <div class="concept" id="concept-7">
+            <h2>7. RDS & Aurora</h2>
+            <span class="tag">Managed Databases</span>
+
+            <div class="point">
+                <h3>RDS Overview & Engines</h3>
+                <p><strong>RDS (Relational Database Service):</strong> Managed database &mdash; AWS handles provisioning, patching, backups, failover. You manage: schema, queries, optimization. Supported engines: <strong>MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, Aurora</strong>. Cannot SSH into RDS instances. Runs on EC2 instances behind the scenes (db.t3.micro to db.r6g.16xlarge). <strong>Storage:</strong> EBS-backed (gp3, io1/io2). Auto-scaling storage up to configured max (no downtime). Max storage: 64 TB (16 TB for SQL Server).</p>
+            </div>
+
+            <div class="point">
+                <h3>Multi-AZ Deployments</h3>
+                <p><strong>Multi-AZ:</strong> Synchronous standby replica in different AZ for <strong>high availability</strong> (not read scaling). Automatic failover: DNS endpoint switches to standby in ~60-120 seconds. Triggers: AZ outage, primary instance failure, storage failure, manual failover. <strong>Multi-AZ Cluster (new):</strong> 1 writer + 2 readable standby instances across 3 AZs. Transaction logs replicated via semisynchronous replication. Failover in ~35 seconds. Standby can serve read queries (reader endpoint). Available for MySQL and PostgreSQL.</p>
+                <pre>// Multi-AZ vs Read Replica
+Multi-AZ:
+  Purpose: High Availability (failover)
+  Replication: Synchronous
+  Access: Standby NOT accessible for reads*
+  Failover: Automatic (~60-120s)
+  Regions: Same region only
+
+Read Replica:
+  Purpose: Read scaling (performance)
+  Replication: Asynchronous
+  Access: Independently queryable
+  Failover: Manual promotion
+  Regions: Same or cross-region
+
+*Multi-AZ Cluster standby CAN serve reads</pre>
+            </div>
+
+            <div class="point">
+                <h3>Read Replicas</h3>
+                <p>Create up to <strong>15 read replicas</strong> (5 for non-Aurora RDS). Asynchronous replication &mdash; eventual consistency. Can be in same AZ, cross-AZ (free within region), or <strong>cross-region</strong> (network charges apply). Use for: read-heavy workloads, reporting/analytics queries, serving different geo regions. Can be <strong>promoted to standalone</strong> DB (breaks replication). Replicas can have replicas (chaining). Application must handle directing reads to replica endpoint.</p>
+            </div>
+
+            <div class="point">
+                <h3>Amazon Aurora</h3>
+                <p><strong>Aurora:</strong> AWS-proprietary, cloud-optimized. 5x MySQL / 3x PostgreSQL throughput. Storage: auto-grows 10 GB to 128 TB, <strong>6 copies across 3 AZs</strong> (4/6 needed for writes, 3/6 for reads). Self-healing storage (data blocks continuously scanned and repaired). <strong>Writer endpoint:</strong> points to primary. <strong>Reader endpoint:</strong> connection-level load balancing across up to 15 replicas. Failover: &lt;30 seconds (promotes a replica). Supports <strong>backtrack</strong> &mdash; rewind DB to point in time without restore (MySQL only).</p>
+            </div>
+
+            <div class="point">
+                <h3>Aurora Serverless & Global Database</h3>
+                <p><strong>Aurora Serverless v2:</strong> Auto-scales capacity in fine-grained increments (0.5 ACU steps). Scales in seconds. Min/max ACU configurable. Pay per ACU-second. Use for: unpredictable/intermittent workloads, dev/test, multi-tenant SaaS. Can mix Serverless and provisioned instances in same cluster. <strong>Aurora Global Database:</strong> Primary region (read/write) + up to 5 secondary regions (read-only, &lt;1 second replication lag). Designed for global apps and disaster recovery. Failover to secondary region: RPO &lt;1s, RTO &lt;1 minute. Up to 16 read replicas per secondary region.</p>
+            </div>
+
+            <div class="point">
+                <h3>Backup, Restore & Encryption</h3>
+                <p><strong>Automated backups:</strong> Daily full snapshot + transaction logs every 5 minutes. Retention: 1-35 days. Point-in-time restore (PITR) to any second within retention. Restores create a <strong>new DB instance</strong>. <strong>Manual snapshots:</strong> User-triggered, retained until deleted. Can copy cross-region and share cross-account. <strong>Encryption:</strong> At-rest via KMS (AES-256). Must enable at creation (cannot encrypt existing unencrypted DB &mdash; must snapshot, copy with encryption, restore). In-transit: SSL/TLS. Replicas use same encryption key as primary (cross-region replicas use target region's key).</p>
+            </div>
+
+            <div class="point">
+                <h3>RDS Proxy</h3>
+                <p><strong>RDS Proxy:</strong> Fully managed database proxy. <strong>Connection pooling:</strong> Multiplexes thousands of app connections into a small pool of DB connections. Reduces connection overhead by up to 66%. <strong>Failover:</strong> Reduces failover time by up to 66% (maintains connection pool, routes to new primary transparently). <strong>IAM authentication:</strong> Stores credentials in Secrets Manager, enforces IAM auth from apps. Essential for <strong>Lambda</strong> (Lambda functions create many short-lived connections that overwhelm DB). Supports MySQL, PostgreSQL, MariaDB, SQL Server.</p>
+                <pre>// Without RDS Proxy (Lambda problem)
+1000 Lambda invocations = 1000 DB connections
+  → DB max_connections exhausted → errors
+
+// With RDS Proxy
+1000 Lambda invocations → RDS Proxy (pool of ~50 connections)
+  → DB handles 50 connections comfortably</pre>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q41: What is the difference between Multi-AZ and Read Replicas in RDS?</div>
+                    <div class="answer"><strong>Multi-AZ:</strong> Purpose is <em>high availability</em>. Synchronous replication to standby in different AZ. Standby is NOT accessible for reads (except Multi-AZ Cluster). Automatic failover (60-120s). Same region only. No performance improvement. <strong>Read Replica:</strong> Purpose is <em>read scalability</em>. Asynchronous replication (eventual consistency). Fully accessible for reads (own endpoint). No automatic failover (manual promotion). Can be cross-region. Improves read performance. <strong>Common combo:</strong> Multi-AZ primary (for HA) + read replicas (for scaling) + read replica in another region (for DR).</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q42: How does Aurora achieve high availability and what makes it different from standard RDS?</div>
+                    <div class="answer"><strong>Aurora storage:</strong> Data stored in a <em>cluster volume</em> spanning 3 AZs with 6 copies. Writes need 4/6 quorum, reads need 3/6. Self-healing: background process scans and repairs corrupt blocks. <strong>Failover:</strong> If primary fails, Aurora promotes a replica in &lt;30s (vs 60-120s for RDS). If no replica, creates new primary (~10 min). <strong>Performance:</strong> 5x MySQL, 3x PostgreSQL throughput via log-structured storage (only writes redo logs, not data pages). <strong>Features RDS lacks:</strong> Backtrack (rewind without restore), Global Database (&lt;1s cross-region replication), Serverless v2 (auto-scaling ACUs), up to 15 replicas (vs 5), reader endpoint load balancing.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q43: When would you use Aurora Serverless vs Provisioned?</div>
+                    <div class="answer"><strong>Aurora Serverless v2</strong> for: (1) Unpredictable or variable workloads (startup with unknown traffic). (2) Intermittent usage (dev/test used only during business hours). (3) Multi-tenant SaaS (each tenant has different usage patterns). (4) Mixed workloads (handles spikes without over-provisioning). Scales 0.5 ACU increments in seconds. <strong>Provisioned</strong> for: (1) Predictable, steady-state production workloads. (2) Cost-sensitive scenarios where you know exact capacity. (3) When you need specific instance types for performance tuning. <strong>Hybrid:</strong> v2 supports mixing provisioned and serverless instances in same cluster &mdash; provisioned writer + serverless readers for burst read capacity.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q44: Why is RDS Proxy essential for Lambda-based applications?</div>
+                    <div class="answer">Lambda functions are <strong>ephemeral</strong> &mdash; each invocation opens a new DB connection. Under load, 1000 concurrent Lambdas = 1000 connections, quickly exhausting <code>max_connections</code> (e.g., db.t3.micro allows ~60). <strong>RDS Proxy solves this:</strong> (1) <strong>Connection pooling:</strong> multiplexes thousands of Lambda connections into ~50-100 actual DB connections. (2) <strong>Connection reuse:</strong> Lambda connects to proxy, proxy reuses idle connections from pool. (3) <strong>Faster failover:</strong> Proxy maintains connection pool and transparently routes to new primary during Multi-AZ failover (66% faster). (4) <strong>IAM auth:</strong> Lambda authenticates via IAM, Proxy fetches credentials from Secrets Manager. No credentials in Lambda code.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q45: How do you encrypt an existing unencrypted RDS database?</div>
+                    <div class="answer">You <strong>cannot enable encryption on an existing unencrypted RDS instance</strong>. The process: (1) Create a <strong>snapshot</strong> of the unencrypted DB. (2) <strong>Copy the snapshot</strong> with encryption enabled (select KMS key). (3) <strong>Restore</strong> a new DB instance from the encrypted snapshot. (4) Update application to point to new DB endpoint. (5) Verify and delete old unencrypted instance. For <strong>cross-region encrypted copy:</strong> Copy snapshot to target region with target region's KMS key. <strong>Read replicas:</strong> If master is encrypted, all replicas are encrypted. Cannot create unencrypted replica from encrypted master. Cross-region replicas use destination region's KMS key.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q46: Explain Aurora Global Database and its DR capabilities.</div>
+                    <div class="answer"><strong>Aurora Global Database:</strong> One primary region (read/write) + up to 5 secondary regions (read-only). Uses dedicated replication infrastructure &mdash; <strong>&lt;1 second replication lag</strong> (vs minutes for cross-region read replicas). Each secondary region can have up to 16 replicas. <strong>Planned failover (switchover):</strong> RPO = 0, RTO ~1-2 minutes. For planned migration or region switch. <strong>Unplanned failover:</strong> RPO &lt;1s (some data may not have replicated), RTO &lt;1 minute. Promote secondary to primary via console/CLI. <strong>Use cases:</strong> Global reads (users hit local region), disaster recovery (entire region failure), data sovereignty with read-local/write-global pattern.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q47: What are RDS parameter groups and option groups?</div>
+                    <div class="answer"><strong>Parameter Groups:</strong> Configuration for the database engine (like my.cnf for MySQL). Controls: max_connections, query_cache_size, innodb_buffer_pool_size, log settings. <strong>DB Parameter Group:</strong> applies to single instance. <strong>DB Cluster Parameter Group:</strong> applies to Aurora cluster. Changes: some apply immediately, some require reboot (static vs dynamic parameters). <strong>Option Groups:</strong> Enable additional features for the engine &mdash; Oracle TDE, SQL Server Audit, MySQL memcached plugin. <strong>Best practice:</strong> Never modify default parameter group (it's shared). Create custom parameter group, tune for your workload, and associate with your instance. Track changes via description field.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q48: Design a database architecture for a high-traffic e-commerce application.</div>
+                    <div class="answer"><strong>Architecture:</strong> (1) <strong>Aurora MySQL cluster</strong> with Multi-AZ writer + 3 read replicas (auto-scaling replicas between 1-5). (2) <strong>RDS Proxy</strong> in front for connection pooling (essential if using Lambda). (3) <strong>Reader endpoint</strong> for product catalog reads, <strong>writer endpoint</strong> for orders/transactions. (4) <strong>ElastiCache Redis</strong> for session management + product catalog cache (reduce DB load by 80%). (5) <strong>Aurora Global Database</strong> with secondary in eu-west-1 for DR (RPO &lt;1s). (6) Automated backups: 35-day retention + pre-deployment manual snapshots. (7) <strong>Monitoring:</strong> CloudWatch alarms on CPU, connections, replica lag, freeable memory. <strong>RTO: &lt;1 min, RPO: &lt;1s.</strong></div>
                 </div>
             </div>
         </div>
