@@ -127,7 +127,7 @@
             <a href="#concept-1" class="active">1. EC2 & Compute</a>
             <a href="#concept-2">2. VPC & Networking</a>
             <a href="#concept-3">3. S3 & Storage</a>
-            <a href="#concept-4" class="pending">4. IAM & Security</a>
+            <a href="#concept-4">4. IAM & Security</a>
             <a href="#concept-5" class="pending">5. ELB & Auto Scaling</a>
             <a href="#concept-6" class="pending">6. Route 53 & DNS</a>
             <a href="#concept-7" class="pending">7. RDS & Aurora</a>
@@ -603,6 +603,161 @@ aws s3api select-object-content \
                 <div class="q">
                     <div class="question">Q16: How does S3 Transfer Acceleration work?</div>
                     <div class="answer">Client uploads to the <strong>nearest CloudFront edge location</strong> (150+ globally). From edge, data travels over <strong>AWS's optimized backbone</strong> network to the S3 bucket region. 50-500% faster than regular internet upload for long distances. Use when: uploading from globally distributed clients, large file uploads from far-away regions. Enable per bucket. Uses endpoint: <code>mybucket.s3-accelerate.amazonaws.com</code>. Small extra cost but significant speed gain.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Concept 4: IAM & Security -->
+        <div class="concept" id="concept-4">
+            <h2>4. IAM & Security</h2>
+            <span class="tag">Security</span>
+
+            <div class="point">
+                <h3>IAM Core Building Blocks</h3>
+                <p><strong>Users</strong> &mdash; individual identities (person or application). <strong>Groups</strong> &mdash; collection of users (e.g., Developers, Admins); cannot nest groups inside groups. <strong>Roles</strong> &mdash; temporary credentials assumed by users, services, or accounts; no permanent password/keys. <strong>Policies</strong> &mdash; JSON documents defining permissions (Allow/Deny on Actions for Resources with optional Conditions).</p>
+                <pre>// Policy structure
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::my-bucket/*",
+    "Condition": {
+      "IpAddress": { "aws:SourceIp": "10.0.0.0/8" }
+    }
+  }]
+}</pre>
+                <p>Best practice: Attach policies to <strong>groups</strong>, not individual users. Users inherit permissions from all groups they belong to.</p>
+            </div>
+
+            <div class="point">
+                <h3>Policy Types & Evaluation Logic</h3>
+                <p><strong>Identity-based policies:</strong> Attached to users/groups/roles (managed or inline). <strong>Resource-based policies:</strong> Attached to resources (S3 bucket policy, SQS queue policy) &mdash; specify a <code>Principal</code>. <strong>Service Control Policies (SCPs):</strong> Organization-level guardrails &mdash; restrict what accounts <em>can</em> do (don't grant permissions, only limit). <strong>Permission boundaries:</strong> Maximum permissions an IAM entity can have &mdash; intersection of boundary + identity policy = effective permissions.</p>
+                <p><strong>Evaluation order:</strong> Explicit Deny &rarr; SCP &rarr; Resource-based policy &rarr; Permission boundary &rarr; Session policy &rarr; Identity-based policy. <strong>Explicit Deny always wins.</strong></p>
+            </div>
+
+            <div class="point">
+                <h3>Least Privilege & Access Advisor</h3>
+                <p>Start with <strong>zero permissions</strong> and add only what's needed. Use <strong>IAM Access Analyzer</strong> to generate policies based on actual CloudTrail activity. <strong>Access Advisor</strong> shows last-accessed timestamps per service &mdash; remove unused permissions. Use <strong>aws:RequestedRegion</strong> condition to restrict actions to specific regions. Regularly audit with <strong>IAM Credential Report</strong> (account-level CSV of all users and credential status).</p>
+            </div>
+
+            <div class="point">
+                <h3>IAM Roles & Cross-Account Access</h3>
+                <p>Roles have a <strong>trust policy</strong> (who can assume) + <strong>permissions policy</strong> (what they can do). For cross-account: Account B creates role with trust policy allowing Account A, Account A users call <code>sts:AssumeRole</code> to get temporary credentials.</p>
+                <pre>// Trust policy (on role in Account B)
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111111111111:root" },
+  "Action": "sts:AssumeRole",
+  "Condition": { "StringEquals": { "sts:ExternalId": "unique-id-123" } }
+}
+
+// Account A assumes the role
+aws sts assume-role \
+  --role-arn arn:aws:iam::222222222222:role/CrossAccountRole \
+  --role-session-name my-session \
+  --external-id unique-id-123</pre>
+                <p><strong>ExternalId</strong> prevents confused deputy attacks when third parties assume roles in your account.</p>
+            </div>
+
+            <div class="point">
+                <h3>STS (Security Token Service)</h3>
+                <p>Generates <strong>temporary credentials</strong> (access key + secret key + session token) with configurable expiry (15 min to 12 hours). Key API calls: <code>AssumeRole</code> (cross-account, same-account role switch), <code>AssumeRoleWithSAML</code> (enterprise SSO), <code>AssumeRoleWithWebIdentity</code> (federated users from Google/Facebook &mdash; prefer Cognito instead), <code>GetSessionToken</code> (MFA-protected API access), <code>GetCallerIdentity</code> (who am I?).</p>
+            </div>
+
+            <div class="point">
+                <h3>MFA & Security Best Practices</h3>
+                <p>Enable MFA on <strong>root account</strong> (mandatory) and all IAM users. MFA device options: Virtual (Authy, Google Authenticator), Hardware (YubiKey), U2F Security Key. Use <strong>MFA condition</strong> in policies to require MFA for sensitive operations:</p>
+                <pre>// Deny all actions unless MFA is present
+{
+  "Effect": "Deny",
+  "Action": "*",
+  "Resource": "*",
+  "Condition": {
+    "BoolIfExists": { "aws:MultiFactorAuthPresent": "false" }
+  }
+}</pre>
+                <p>Root account: enable MFA, delete access keys, use only for billing and account-level tasks. Create individual IAM users &mdash; never share root credentials.</p>
+            </div>
+
+            <div class="point">
+                <h3>IAM Conditions & Variables</h3>
+                <p>Conditions add fine-grained control: <code>aws:SourceIp</code> (restrict by IP range), <code>aws:RequestedRegion</code> (restrict to regions), <code>aws:PrincipalTag</code> (ABAC &mdash; attribute-based access), <code>s3:prefix</code> (restrict S3 access to specific folders), <code>aws:CurrentTime</code> (time-based access).</p>
+                <pre>// Allow user to access only their own S3 folder
+{
+  "Effect": "Allow",
+  "Action": "s3:*",
+  "Resource": "arn:aws:s3:::company-bucket/home/${aws:username}/*"
+}
+
+// ABAC: Allow access based on tags
+"Condition": {
+  "StringEquals": {
+    "aws:PrincipalTag/Department": "Engineering",
+    "ec2:ResourceTag/Environment": "dev"
+  }
+}</pre>
+                <p><strong>ABAC</strong> (Attribute-Based Access Control) scales better than traditional RBAC &mdash; no need to update policies when new resources are added.</p>
+            </div>
+
+            <div class="point">
+                <h3>Permission Boundaries</h3>
+                <p>Set <strong>maximum permissions</strong> an IAM entity can have, regardless of identity policies. Use case: Allow team leads to create IAM users but limit what permissions they can grant (prevents privilege escalation). Effective permissions = <strong>intersection</strong> of identity policy AND permission boundary.</p>
+                <pre>// Permission boundary: max S3 + CloudWatch only
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:*", "cloudwatch:*"],
+    "Resource": "*"
+  }]
+}
+// Even if identity policy grants "ec2:*",
+// effective permissions will NOT include EC2</pre>
+                <p>Also useful for: delegating IAM administration safely, limiting Lambda execution roles, enforcing organizational guardrails below SCP level.</p>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q17: What is the difference between IAM Users, Groups, Roles, and Policies?</div>
+                    <div class="answer"><strong>Users:</strong> Individual identities with long-term credentials (password + access keys). <strong>Groups:</strong> Containers for users to apply permissions in bulk (e.g., all developers get S3 read); cannot be nested. <strong>Roles:</strong> Temporary credential providers &mdash; assumed by users, AWS services (EC2, Lambda), or external accounts; no permanent password. <strong>Policies:</strong> JSON permission documents attached to any of the above; define Effect (Allow/Deny), Actions, Resources, and optional Conditions. Best practice: use groups for users, roles for services, and managed policies for reusability.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q18: Explain the IAM policy evaluation logic. What happens when there's a conflict?</div>
+                    <div class="answer">AWS evaluates in this order: (1) <strong>Explicit Deny</strong> &mdash; if any policy says Deny, it's denied immediately (highest priority). (2) <strong>SCP check</strong> &mdash; must be allowed by organization SCP. (3) <strong>Resource-based policy</strong> &mdash; can grant access even cross-account. (4) <strong>Permission boundary</strong> &mdash; must be within boundary. (5) <strong>Session policy</strong> &mdash; for temporary sessions. (6) <strong>Identity-based policy</strong> &mdash; must explicitly Allow. If no explicit Allow is found, the default is <strong>implicit Deny</strong>. Key rule: Explicit Deny > Allow > Implicit Deny. For cross-account access, both the resource policy (target account) AND the identity policy (source account) must allow.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q19: How does cross-account access work in AWS?</div>
+                    <div class="answer"><strong>Method 1 &mdash; IAM Roles (recommended):</strong> Account B creates a role with a trust policy allowing Account A's principal. Account A users call <code>sts:AssumeRole</code> to get temporary credentials for Account B. Use <code>ExternalId</code> to prevent confused deputy attacks. <strong>Method 2 &mdash; Resource-based policies:</strong> The resource (S3 bucket, SQS queue) in Account B adds a policy with Account A as Principal &mdash; no role assumption needed, the caller keeps their original identity. Roles are preferred because they provide temporary credentials and complete audit trail via CloudTrail.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q20: What is the confused deputy problem and how does ExternalId prevent it?</div>
+                    <div class="answer">A <strong>confused deputy</strong> attack occurs when a third-party service (e.g., auditing tool) that you've granted cross-account access is tricked into acting on behalf of another malicious customer using your role ARN. Without ExternalId, the third party can't distinguish requests. <strong>Solution:</strong> Add a unique <code>ExternalId</code> condition in the trust policy. The third party must provide this secret value when calling AssumeRole. Each customer gets a unique ExternalId, so a malicious customer can't use another customer's ExternalId to access their resources.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q21: What is the difference between SCP, Permission Boundary, and Identity Policy?</div>
+                    <div class="answer"><strong>SCP (Service Control Policy):</strong> Organization-level guardrail applied to accounts/OUs; defines the <em>maximum</em> permissions for the entire account; doesn't grant any permissions. <strong>Permission Boundary:</strong> Set on individual IAM users/roles; defines the <em>maximum</em> permissions for that entity; effective permissions = intersection of boundary AND identity policy. <strong>Identity Policy:</strong> Directly grants Allow/Deny permissions to users/groups/roles. All three are <em>layered</em>: an action must be allowed by SCP AND within the permission boundary AND allowed by the identity policy AND not explicitly denied by any of them.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q22: How do you implement least privilege effectively in a large AWS organization?</div>
+                    <div class="answer"><strong>Step 1:</strong> Start with zero permissions (deny all by default). <strong>Step 2:</strong> Use <strong>IAM Access Analyzer</strong> to analyze CloudTrail logs and auto-generate policies based on actual API calls made over 30-90 days. <strong>Step 3:</strong> Review <strong>Access Advisor</strong> to find and remove unused service permissions. <strong>Step 4:</strong> Use <strong>SCPs</strong> to set organization-wide guardrails (e.g., deny all outside approved regions). <strong>Step 5:</strong> Implement <strong>ABAC</strong> with tags to scale permissions without updating policies. <strong>Step 6:</strong> Regular audit with <strong>IAM Credential Report</strong> (CSV of all users, key ages, MFA status). <strong>Step 7:</strong> Use permission boundaries when delegating IAM admin to teams.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q23: What is ABAC and how does it differ from traditional RBAC in AWS?</div>
+                    <div class="answer"><strong>RBAC (Role-Based):</strong> Create separate policies for each role (dev-s3-policy, prod-s3-policy, staging-s3-policy). When new resources are added, update all policies. Doesn't scale well &mdash; policy explosion. <strong>ABAC (Attribute-Based):</strong> Use tags on both principals and resources. One policy like "allow access if <code>PrincipalTag/Project</code> matches <code>ResourceTag/Project</code>". When new resources are added with proper tags, permissions work automatically. <strong>AWS implementation:</strong> Use <code>aws:PrincipalTag</code>, <code>aws:ResourceTag</code>, and <code>aws:RequestTag</code> conditions. ABAC scales to hundreds of projects without policy changes.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q24: How would you secure the root account and set up IAM for a new AWS account?</div>
+                    <div class="answer"><strong>Root account:</strong> (1) Enable MFA immediately (hardware key preferred). (2) Delete root access keys. (3) Create a strong password and store securely. (4) Use root only for billing/account-level tasks. <strong>IAM setup:</strong> (1) Create an Admin IAM user/role (not root). (2) Enable <strong>IAM password policy</strong> (min length, complexity, rotation). (3) Create groups by function (Admins, Developers, ReadOnly). (4) Enforce MFA for all users via policy condition. (5) Enable <strong>CloudTrail</strong> in all regions for audit. (6) Set up <strong>AWS Organizations</strong> with SCPs. (7) Enable <strong>IAM Access Analyzer</strong> for external access findings. (8) Use SSO/Identity Center for enterprise users instead of individual IAM users.</div>
                 </div>
             </div>
         </div>
