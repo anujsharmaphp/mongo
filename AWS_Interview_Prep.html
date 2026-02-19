@@ -126,7 +126,7 @@
         <nav>
             <a href="#concept-1" class="active">1. EC2 & Compute</a>
             <a href="#concept-2">2. VPC & Networking</a>
-            <a href="#concept-3" class="pending">3. S3 & Storage</a>
+            <a href="#concept-3">3. S3 & Storage</a>
             <a href="#concept-4" class="pending">4. IAM & Security</a>
             <a href="#concept-5" class="pending">5. ELB & Auto Scaling</a>
             <a href="#concept-6" class="pending">6. Route 53 & DNS</a>
@@ -440,6 +440,169 @@ Return traffic   | Auto-allowed           | Must explicitly allow</code></pre>
                 <div class="q">
                     <div class="question">Q8: How to design VPC for HIPAA compliance?</div>
                     <div class="answer"><strong>1)</strong> All resources in <strong>private subnets</strong> &mdash; no public IPs on app/data tier. <strong>2)</strong> VPC Endpoints for AWS services (no internet traversal). <strong>3)</strong> <strong>NACLs + SGs</strong> with least-privilege rules. <strong>4)</strong> <strong>VPC Flow Logs</strong> enabled and shipped to S3/CloudWatch for audit. <strong>5)</strong> <strong>Direct Connect or VPN</strong> for on-prem connectivity. <strong>6)</strong> <strong>PrivateLink</strong> for third-party service access. <strong>7)</strong> Encrypt all traffic with TLS. We implemented all of these at CorroHealth for PHI data handling.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONCEPT 3 -->
+        <div class="concept" id="concept-3">
+            <h2>3. S3 & Storage</h2>
+            <span class="tag">Object Storage</span>
+
+            <div class="point">
+                <strong>What is S3?</strong>
+                <p>Simple Storage Service &mdash; unlimited object storage. Store any file (up to 5TB per object). Objects stored in <strong>buckets</strong> (globally unique name). Flat structure (no real folders &mdash; prefixes simulate folders). 11 9's durability (99.999999999%). Used for: static assets, backups, data lakes, logs, ML datasets.</p>
+            </div>
+
+            <div class="point">
+                <strong>Storage Classes</strong>
+                <ul>
+                    <li><strong>S3 Standard:</strong> Default. Frequently accessed. 3 AZ replication. Lowest latency. Most expensive storage.</li>
+                    <li><strong>S3 Intelligent-Tiering:</strong> Auto-moves objects between tiers based on access patterns. No retrieval fees. Best when access patterns are unknown.</li>
+                    <li><strong>S3 Standard-IA (Infrequent Access):</strong> Lower storage cost, retrieval fee. Min 30 days. For: backups accessed occasionally.</li>
+                    <li><strong>S3 One Zone-IA:</strong> Single AZ. 20% cheaper than Standard-IA. For: reproducible data, secondary backups.</li>
+                    <li><strong>S3 Glacier Instant Retrieval:</strong> Millisecond retrieval. Cheapest for data accessed once per quarter.</li>
+                    <li><strong>S3 Glacier Flexible:</strong> Minutes to hours retrieval (Expedited: 1-5 min, Standard: 3-5 hr, Bulk: 5-12 hr). For: archives.</li>
+                    <li><strong>S3 Glacier Deep Archive:</strong> Cheapest. 12-48 hour retrieval. For: compliance archives, 7+ year retention.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Lifecycle Policies</strong>
+                <p>Automatically transition objects between storage classes or delete after expiry.</p>
+<pre><code>{
+  "Rules": [{
+    "ID": "ArchiveOldLogs",
+    "Status": "Enabled",
+    "Filter": { "Prefix": "logs/" },
+    "Transitions": [
+      { "Days": 30, "StorageClass": "STANDARD_IA" },
+      { "Days": 90, "StorageClass": "GLACIER" },
+      { "Days": 365, "StorageClass": "DEEP_ARCHIVE" }
+    ],
+    "Expiration": { "Days": 2555 }  // Delete after 7 years
+  }]
+}</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>Versioning</strong>
+                <ul>
+                    <li>Keep multiple versions of an object. Protects against accidental deletes/overwrites.</li>
+                    <li>Delete adds a <strong>delete marker</strong> (soft delete). Previous versions remain accessible.</li>
+                    <li>Combine with lifecycle to expire old versions: <code>"NoncurrentVersionExpiration": { "NoncurrentDays": 30 }</code></li>
+                    <li><strong>MFA Delete:</strong> Require MFA to permanently delete versions. Extra protection for critical data.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Encryption</strong>
+                <ul>
+                    <li><strong>SSE-S3:</strong> AWS manages keys. Default encryption. AES-256. Zero effort.</li>
+                    <li><strong>SSE-KMS:</strong> AWS KMS manages keys. Audit trail via CloudTrail. Key rotation. Use for: compliance (HIPAA, PCI).</li>
+                    <li><strong>SSE-C:</strong> You provide encryption key with each request. AWS encrypts/decrypts but doesn't store key.</li>
+                    <li><strong>Client-Side:</strong> Encrypt before upload. AWS never sees plaintext. Maximum control.</li>
+                    <li><strong>In Transit:</strong> Always use HTTPS (TLS). Enforce with bucket policy: <code>"aws:SecureTransport": "false"</code> → Deny.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Replication</strong>
+                <ul>
+                    <li><strong>CRR (Cross-Region Replication):</strong> Replicate to bucket in different region. For: DR, compliance, latency reduction.</li>
+                    <li><strong>SRR (Same-Region Replication):</strong> Replicate within same region. For: log aggregation, live replica between accounts.</li>
+                    <li>Requires versioning enabled on both source and destination. Can replicate to different account.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Presigned URLs & S3 Select</strong>
+<pre><code># Presigned URL: Temporary access to private objects
+aws s3 presign s3://my-bucket/private-report.pdf --expires-in 3600
+# Returns: https://my-bucket.s3.amazonaws.com/private-report.pdf?X-Amz-...
+# Anyone with URL can download for 1 hour. No AWS credentials needed.
+
+# S3 Select: Query CSV/JSON/Parquet with SQL without downloading entire file
+aws s3api select-object-content \
+  --bucket my-bucket --key data.csv \
+  --expression "SELECT * FROM s3object WHERE age > 30" \
+  --expression-type SQL \
+  --input-serialization '{"CSV": {"FileHeaderInfo": "USE"}}' \
+  --output-serialization '{"CSV": {}}' output.csv
+# Saves bandwidth and cost — only transfers matching rows</code></pre>
+            </div>
+
+            <div class="point">
+                <strong>S3 Performance & Transfer</strong>
+                <ul>
+                    <li><strong>Multipart Upload:</strong> Required for >5GB. Recommended for >100MB. Parallel upload of parts. Resume on failure.</li>
+                    <li><strong>Transfer Acceleration:</strong> Uses CloudFront edge locations. Upload to nearest edge → AWS backbone to S3. 50-500% faster for long-distance uploads.</li>
+                    <li><strong>S3 Byte-Range Fetches:</strong> Download specific byte ranges in parallel. Speed up large file downloads.</li>
+                    <li><strong>Performance:</strong> 3,500 PUT/POST + 5,500 GET per second <strong>per prefix</strong>. Spread across prefixes for more throughput.</li>
+                </ul>
+            </div>
+
+            <div class="point">
+                <strong>Bucket Policies & ACLs</strong>
+<pre><code>// Bucket Policy: Allow public read on /public/* prefix only
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicRead",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::my-bucket/public/*"
+  }]
+}
+
+// Block Public Access (account-level recommended)
+// S3 Block Public Access → ON (all 4 settings)
+// Only open specific buckets via bucket policy when needed</code></pre>
+            </div>
+
+            <!-- Interview Q&A -->
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q9: How to design cost-effective S3 storage for healthcare data?</div>
+                    <div class="answer"><strong>Active patient docs (0-30 days):</strong> S3 Standard. <strong>Recent archives (30-90 days):</strong> S3 Standard-IA via lifecycle rule. <strong>Compliance archives (90+ days):</strong> Glacier Flexible. <strong>7-year retention (legal):</strong> Glacier Deep Archive. Enable versioning for accidental delete protection. SSE-KMS encryption for HIPAA. Object Lock (WORM) for compliance. We saved ~60% on storage costs with this tiered approach at CorroHealth.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q10: S3 vs EBS vs EFS &mdash; when to use which?</div>
+                    <div class="answer"><strong>S3:</strong> Object storage. Unlimited. HTTP API access. For: static files, backups, data lakes, media. <strong>EBS:</strong> Block storage. Attached to single EC2. For: OS disk, databases, app data. <strong>EFS:</strong> File system (NFS). Shared across multiple EC2 instances. For: CMS content, shared config, container storage. <strong>Rule:</strong> S3 for objects, EBS for single-instance disk, EFS for shared file system.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q11: How to secure an S3 bucket properly?</div>
+                    <div class="answer"><strong>1)</strong> Enable <strong>S3 Block Public Access</strong> at account level. <strong>2)</strong> Bucket policy with least privilege. <strong>3)</strong> SSE-KMS encryption (audit trail). <strong>4)</strong> Enable versioning + MFA Delete. <strong>5)</strong> Enforce HTTPS via bucket policy (<code>SecureTransport</code>). <strong>6)</strong> VPC Gateway Endpoint for private access. <strong>7)</strong> Access logging to separate bucket. <strong>8)</strong> IAM policies &mdash; no <code>s3:*</code> wildcards. <strong>9)</strong> Object Lock for WORM compliance.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q12: Explain S3 event notifications &mdash; real use case.</div>
+                    <div class="answer">S3 can trigger events on <strong>PUT, POST, DELETE, Restore</strong>. Targets: Lambda, SQS, SNS, EventBridge. <strong>Our use case:</strong> Medical document uploaded to S3 → S3 Event triggers Lambda → Lambda sends message to SQS → NLP worker picks up, processes document, writes results to MongoDB. Fully serverless ingestion pipeline. Also used for: image thumbnail generation, virus scanning on upload, ETL triggers.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q13: What is S3 Object Lock and when to use it?</div>
+                    <div class="answer">Object Lock enforces <strong>WORM (Write Once Read Many)</strong>. Two modes: <strong>Governance</strong> (users with special permissions can override) and <strong>Compliance</strong> (nobody can delete, not even root, until retention expires). Use for: <strong>regulatory compliance</strong> (HIPAA, SEC, FINRA), audit logs, legal hold documents. We used Compliance mode for medical records requiring 7-year retention at CorroHealth.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q14: How to optimize S3 costs?</div>
+                    <div class="answer"><strong>1)</strong> Lifecycle policies to auto-transition to cheaper tiers. <strong>2)</strong> S3 Intelligent-Tiering for unknown access patterns. <strong>3)</strong> Delete incomplete multipart uploads (<code>AbortIncompleteMultipartUpload: 7 days</code>). <strong>4)</strong> Expire old object versions. <strong>5)</strong> S3 Analytics to identify transition candidates. <strong>6)</strong> Compress before upload (gzip). <strong>7)</strong> Use VPC Gateway Endpoint (no data transfer charges). <strong>8)</strong> S3 Select instead of downloading full objects.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q15: CRR vs SRR &mdash; when to use each?</div>
+                    <div class="answer"><strong>CRR (Cross-Region):</strong> Disaster recovery (data survives entire region failure), compliance (data must exist in specific regions), latency reduction (users read from nearby region). <strong>SRR (Same-Region):</strong> Log aggregation from multiple accounts into one bucket, live replica between prod/analytics accounts, data sovereignty (keep in same region but different account). Both need versioning enabled. Replication is <strong>asynchronous</strong> &mdash; most objects replicate within 15 minutes.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q16: How does S3 Transfer Acceleration work?</div>
+                    <div class="answer">Client uploads to the <strong>nearest CloudFront edge location</strong> (150+ globally). From edge, data travels over <strong>AWS's optimized backbone</strong> network to the S3 bucket region. 50-500% faster than regular internet upload for long distances. Use when: uploading from globally distributed clients, large file uploads from far-away regions. Enable per bucket. Uses endpoint: <code>mybucket.s3-accelerate.amazonaws.com</code>. Small extra cost but significant speed gain.</div>
                 </div>
             </div>
         </div>
