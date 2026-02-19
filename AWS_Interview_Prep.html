@@ -147,7 +147,7 @@
             <a href="#concept-5">5. ELB & Auto Scaling</a>
             <a href="#concept-6">6. Route 53 & DNS</a>
             <a href="#concept-7">7. RDS & Aurora</a>
-            <a href="#concept-8" class="pending">8. DynamoDB</a>
+            <a href="#concept-8">8. DynamoDB</a>
             <a href="#concept-9" class="pending">9. Lambda & Serverless</a>
             <a href="#concept-10" class="pending">10. API Gateway</a>
             <a href="#concept-11" class="pending">11. SQS, SNS & EventBridge</a>
@@ -1312,6 +1312,158 @@ Read Replica:
                 <div class="q">
                     <div class="question">Q48: Design a database architecture for a high-traffic e-commerce application.</div>
                     <div class="answer"><strong>Architecture:</strong> (1) <strong>Aurora MySQL cluster</strong> with Multi-AZ writer + 3 read replicas (auto-scaling replicas between 1-5). (2) <strong>RDS Proxy</strong> in front for connection pooling (essential if using Lambda). (3) <strong>Reader endpoint</strong> for product catalog reads, <strong>writer endpoint</strong> for orders/transactions. (4) <strong>ElastiCache Redis</strong> for session management + product catalog cache (reduce DB load by 80%). (5) <strong>Aurora Global Database</strong> with secondary in eu-west-1 for DR (RPO &lt;1s). (6) Automated backups: 35-day retention + pre-deployment manual snapshots. (7) <strong>Monitoring:</strong> CloudWatch alarms on CPU, connections, replica lag, freeable memory. <strong>RTO: &lt;1 min, RPO: &lt;1s.</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Concept 8: DynamoDB -->
+        <div class="concept" id="concept-8">
+            <h2>8. DynamoDB</h2>
+            <span class="tag">NoSQL</span>
+
+            <div class="point">
+                <h3>DynamoDB Fundamentals</h3>
+                <p><strong>Fully managed NoSQL</strong> key-value and document database. Single-digit millisecond latency at any scale. Serverless &mdash; no instances to manage. Automatic replication across <strong>3 AZs</strong>. Max item size: <strong>400 KB</strong>. Supports JSON documents. <strong>Primary key</strong> options: Partition key only (simple) or Partition key + Sort key (composite). Partition key determines which partition stores the data. Good partition key = high cardinality (e.g., userId, orderId), bad = low cardinality (e.g., status, country).</p>
+            </div>
+
+            <div class="point">
+                <h3>Capacity Modes</h3>
+                <p><strong>Provisioned:</strong> You specify RCU (Read Capacity Units) and WCU (Write Capacity Units). 1 RCU = 1 strongly consistent read/sec (4 KB) or 2 eventually consistent. 1 WCU = 1 write/sec (1 KB). Can enable <strong>Auto Scaling</strong> (target utilization %, min/max). Best for predictable workloads. <strong>On-Demand:</strong> Pay per request. No capacity planning. Instantly scales to thousands of requests/sec. 2.5x more expensive per request than provisioned, but no wasted capacity. Best for unpredictable, spiky workloads. Can switch modes once per 24 hours.</p>
+                <pre>// Capacity calculation example
+// Table: 250 units, each unit writes 3 items/sec (avg 2 KB)
+// Writes: 250 × 3 = 750 writes/sec
+// Each write = ceil(2 KB / 1 KB) = 2 WCU
+// Total WCU needed: 750 × 2 = 1,500 WCU
+
+// Reads: 250 units, each reads 5 items/sec (avg 3 KB)
+// Eventually consistent: 250 × 5 = 1,250 reads/sec
+// Each read = ceil(3 KB / 4 KB) = 1 RCU
+// Eventually consistent: 1,250 × 1 / 2 = 625 RCU</pre>
+            </div>
+
+            <div class="point">
+                <h3>Secondary Indexes (GSI & LSI)</h3>
+                <p><strong>GSI (Global Secondary Index):</strong> Different partition key and/or sort key. Creates a separate table (projected attributes copied). Has its own RCU/WCU. Can be added/removed anytime. Max 20 per table. <strong>LSI (Local Secondary Index):</strong> Same partition key, different sort key. Shares RCU/WCU with base table. Must be created at table creation. Max 5 per table. <strong>Projections:</strong> KEYS_ONLY, INCLUDE (specific attributes), ALL. Fewer projected attributes = less cost but may require fetches back to base table.</p>
+                <pre>// GSI example for MedCode
+Base table PK: encounterId, SK: timestamp
+GSI-1: PK: clientId, SK: timestamp
+  → Query all encounters for a specific client
+GSI-2: PK: coderId, SK: status
+  → Query all encounters assigned to a coder by status
+GSI-3: PK: aiModelVersion, SK: confidenceScore
+  → Query results by AI model for accuracy analysis</pre>
+            </div>
+
+            <div class="point">
+                <h3>DynamoDB Streams</h3>
+                <p>Captures <strong>time-ordered sequence</strong> of item-level changes (INSERT, MODIFY, REMOVE). Retained for 24 hours. Stream records contain: KEYS_ONLY, NEW_IMAGE, OLD_IMAGE, or NEW_AND_OLD_IMAGES. Integrates with <strong>Lambda</strong> (event-driven processing), <strong>Kinesis Data Streams</strong> (longer retention, multiple consumers). Use cases: trigger notifications on change, replicate to another table, maintain materialized views, audit trail, event sourcing.</p>
+            </div>
+
+            <div class="point">
+                <h3>DAX (DynamoDB Accelerator)</h3>
+                <p><strong>In-memory cache</strong> for DynamoDB. Microsecond latency (vs millisecond). Fully managed, highly available (multi-AZ cluster). Drop-in compatible &mdash; same API as DynamoDB (just change endpoint). <strong>Item cache:</strong> Caches individual GetItem/BatchGetItem results by primary key. <strong>Query cache:</strong> Caches Query/Scan results. Default TTL: 5 minutes. Best for read-heavy, latency-sensitive workloads. NOT suitable for: write-heavy apps, strongly consistent reads (DAX serves eventually consistent only), apps needing very low cache TTL.</p>
+            </div>
+
+            <div class="point">
+                <h3>TTL, Transactions & Batch Operations</h3>
+                <p><strong>TTL (Time to Live):</strong> Auto-delete expired items at no cost. Set a TTL attribute (epoch timestamp). DynamoDB deletes within 48 hours of expiry. Use for: session data, temp tokens, old logs. <strong>Transactions:</strong> ACID across up to 100 items across multiple tables. <code>TransactWriteItems</code> / <code>TransactGetItems</code>. All-or-nothing &mdash; if one operation fails, entire transaction rolls back. Costs 2x normal (reads/writes for coordination). <strong>Batch:</strong> <code>BatchWriteItem</code> (up to 25 items, 16 MB), <code>BatchGetItem</code> (up to 100 items). NOT transactional &mdash; individual items can fail (handle <code>UnprocessedItems</code>).</p>
+            </div>
+
+            <div class="point">
+                <h3>Single-Table Design</h3>
+                <p>Store multiple entity types in <strong>one table</strong> using generic key names (PK/SK). Overloaded keys: <code>PK=CLIENT#123</code>, <code>SK=ENCOUNTER#456</code>. Benefits: fewer tables, all related data in one query (1 round trip), efficient for access patterns. Use <strong>GSIs</strong> for additional access patterns. <strong>When NOT to use:</strong> Simple CRUD apps, when access patterns are unknown, small teams unfamiliar with DynamoDB. For complex reporting/joins, keep relational DB (Aurora) and use DynamoDB for high-speed operational data.</p>
+                <pre>// Single-table design for MedCode
+PK                  SK                    Data
+CLIENT#C001         META                  { name, plan, units }
+CLIENT#C001         ENCOUNTER#E100        { pdfUrl, status, uploadedAt }
+CLIENT#C001         ENCOUNTER#E101        { pdfUrl, status, uploadedAt }
+ENCOUNTER#E100      TEXTRACT#001          { extractedText, pages }
+ENCOUNTER#E100      SECTION#HPI           { text, aiCodes }
+ENCOUNTER#E100      SECTION#ASSESSMENT    { text, aiCodes }
+ENCOUNTER#E100      CODE#ICD10            { codes: ["E11.9","I10"] }
+CODER#COD001        ASSIGNMENT#E100       { status, assignedAt }</pre>
+            </div>
+
+            <div class="project-block">
+                <h4>In Your Project: MedCode AI Platform</h4>
+                <p class="arch-label">DynamoDB as the High-Speed Pipeline Tracker &amp; Results Store</p>
+                <pre>
+  Full Pipeline (250 Processing Units):
+
+  Client PDF ──→ S3 ──→ SQS-1 ──→ Lambda (Textract) ──→ SQS-2 ──→ Java App ──→ AI ──→ DB ──→ Downstream
+       │                    │              │                  │           │         │
+       └── DynamoDB tracks every step ─────┴──────────────────┴───────────┘         │
+                                                                                    │
+  ┌─────────────────────────────────────────────────────────────────────────────────┘
+  │
+  │  DynamoDB Table: medcode-pipeline-tracker
+  │  ┌─────────────────┬──────────────────────┬─────────────────────────────┐
+  │  │ PK              │ SK                   │ Attributes                  │
+  │  ├─────────────────┼──────────────────────┼─────────────────────────────┤
+  │  │ ENCOUNTER#E100  │ STATUS               │ stage: "AI_CODING"          │
+  │  │                 │                      │ progress: 4/6 steps done    │
+  │  │ ENCOUNTER#E100  │ TEXTRACT#2024-03-15  │ pageCount: 12, ocrConf: 97% │
+  │  │ ENCOUNTER#E100  │ SECTION#HPI          │ text: "Patient presents..." │
+  │  │ ENCOUNTER#E100  │ SECTION#ASSESSMENT   │ text: "Diabetes Type 2..."  │
+  │  │ ENCOUNTER#E100  │ CODES#FINAL          │ icd10: ["E11.9","I10"]      │
+  │  │                 │                      │ cpt: ["99214"], conf: 0.94  │
+  │  │ CLIENT#C001     │ STATS#2024-03        │ totalPDFs: 3200, coded: 3100│
+  │  └─────────────────┴──────────────────────┴─────────────────────────────┘
+  │
+  │  On-Demand mode: 250 units processing = unpredictable spikes
+  │  DynamoDB Streams → Lambda → update dashboard in real-time
+  │  TTL: Raw text sections auto-deleted after 90 days (save cost)</pre>
+                <ul>
+                    <li><strong>Pipeline tracker:</strong> Each encounter's status tracked through 6 stages (uploaded → OCR → sectionized → AI coding → review → finalized). 250 units writing concurrently &mdash; DynamoDB handles this without throttling on On-Demand mode</li>
+                    <li><strong>On-Demand capacity:</strong> 250 units create unpredictable write bursts (all units may finish Textract simultaneously). On-Demand auto-scales instantly, no capacity planning needed</li>
+                    <li><strong>DynamoDB Streams:</strong> Every status change triggers Lambda → pushes real-time updates to coder dashboard via WebSocket (API Gateway). Coders see live progress of their assigned encounters</li>
+                    <li><strong>GSI on clientId + month:</strong> Query all encounters for a client in a billing period. Used for monthly reporting and invoicing</li>
+                    <li><strong>TTL on raw text:</strong> Textract output and section text auto-deleted after 90 days. Final codes kept in Aurora for long-term compliance. Saves DynamoDB storage cost</li>
+                    <li><strong>Why DynamoDB + Aurora:</strong> DynamoDB for high-speed pipeline tracking and real-time lookups. Aurora for relational queries, reporting, joins across clients/coders/codes. Each DB does what it's best at</li>
+                </ul>
+            </div>
+
+            <div class="qa">
+                <h3>Interview Q&A</h3>
+
+                <div class="q">
+                    <div class="question">Q49: When would you choose DynamoDB over a relational database like Aurora?</div>
+                    <div class="answer"><strong>Choose DynamoDB when:</strong> (1) Consistent single-digit ms latency at any scale. (2) Known access patterns (key-value lookups, not ad-hoc SQL). (3) High write throughput (thousands/sec). (4) Serverless/event-driven architecture. (5) Simple data model (no complex joins). <strong>Choose Aurora when:</strong> Complex queries with JOINs, ad-hoc reporting, ACID transactions across many tables, relational data model. <strong>In MedCode:</strong> DynamoDB tracks pipeline status (fast writes from 250 units), Aurora stores finalized codes for relational reporting (join encounters + coders + clients + codes). Use both &mdash; each for its strength.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q50: How do you design a DynamoDB partition key for high throughput?</div>
+                    <div class="answer"><strong>Goal:</strong> Even distribution across partitions. <strong>Good keys:</strong> High cardinality &mdash; userId, orderId, encounterId (millions of unique values). Each partition handles 3,000 RCU + 1,000 WCU. <strong>Bad keys:</strong> status (only 5 values &mdash; "pending"/"processing"/"done" = hot partition), date (all today's writes hit one partition). <strong>Solutions for hot partitions:</strong> (1) Add random suffix: <code>date#2024-03-15#3</code> (shard across N partitions, scatter-gather on read). (2) Composite key: <code>clientId#date</code>. (3) Write sharding with known suffix count. In MedCode: <code>ENCOUNTER#E100</code> is ideal &mdash; millions of unique encounters, evenly distributed.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q51: Explain the difference between GSI and LSI. When would you use each?</div>
+                    <div class="answer"><strong>LSI (Local Secondary Index):</strong> Same partition key as table, different sort key. Created at table creation only. Shares table's throughput. Max 5. Use when: you query the same partition but need a different sort order (e.g., encounters by encounterId sorted by status vs sorted by date). <strong>GSI (Global Secondary Index):</strong> Completely different partition key and/or sort key. Own throughput (separate RCU/WCU). Created anytime. Max 20. Use when: you need a completely different access pattern (e.g., base table by encounterId, GSI by clientId or coderId). <strong>Key difference:</strong> LSI = different sort within same partition. GSI = entirely different partition key = different access pattern.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q52: How do DynamoDB Streams work and what are common use cases?</div>
+                    <div class="answer"><strong>Streams</strong> capture ordered sequence of changes (INSERT/MODIFY/REMOVE) with 24-hour retention. View types: KEYS_ONLY, NEW_IMAGE, OLD_IMAGE, NEW_AND_OLD_IMAGES. Lambda reads from stream (event source mapping). <strong>Use cases:</strong> (1) <strong>Real-time dashboard:</strong> Stream → Lambda → WebSocket pushes status updates to coders. (2) <strong>Cross-region replication:</strong> Stream → Lambda → write to table in another region (or use Global Tables). (3) <strong>Materialized views:</strong> Maintain aggregated counts in a separate table. (4) <strong>Audit trail:</strong> Stream old/new images to S3 for compliance. (5) <strong>Event sourcing:</strong> Every change is an event, rebuild state from stream. In MedCode: every pipeline stage update streams to dashboard in real-time.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q53: What is single-table design and when should you use it?</div>
+                    <div class="answer"><strong>Single-table design:</strong> Store multiple entity types (users, orders, products) in one table using generic PK/SK with prefixes (<code>USER#123</code>, <code>ORDER#456</code>). <strong>Benefits:</strong> (1) Fetch related data in 1 query (e.g., client + all encounters with PK=CLIENT#C001). (2) Fewer tables to manage. (3) Efficient transactions (up to 100 items, same table). <strong>When to use:</strong> Well-defined access patterns, high-performance apps, DynamoDB-experienced teams. <strong>When NOT to use:</strong> Unknown access patterns (still evolving), simple CRUD, team unfamiliar with NoSQL modeling. <strong>MedCode:</strong> One table stores encounters, sections, codes, assignments &mdash; single query fetches entire encounter pipeline state.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q54: How does DAX compare to ElastiCache for DynamoDB caching?</div>
+                    <div class="answer"><strong>DAX:</strong> DynamoDB-specific, same API (drop-in), microsecond reads, caches individual items + query results, managed cluster, no code changes needed. <strong>ElastiCache (Redis):</strong> General-purpose, requires code changes (check cache → miss → query DB → store in cache), supports complex data structures (sorted sets, pub/sub), cross-service caching (not just DynamoDB), more control over eviction. <strong>Choose DAX:</strong> Pure DynamoDB reads, need simplest integration, item-level caching. <strong>Choose ElastiCache:</strong> Cache results from multiple sources, need pub/sub, need complex data types, want explicit cache control. <strong>MedCode:</strong> DAX for encounter status lookups (hot reads from dashboard), ElastiCache Redis for cross-service session + leaderboard caching.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q55: How do DynamoDB transactions work and what are the limitations?</div>
+                    <div class="answer"><strong>TransactWriteItems:</strong> Up to 100 actions (Put, Update, Delete, ConditionCheck) across multiple tables. All succeed or all fail (ACID). <strong>TransactGetItems:</strong> Up to 100 items, read atomically. <strong>Cost:</strong> 2x normal (each item consumes double RCU/WCU for coordination). <strong>Limitations:</strong> Max 100 items per transaction, 4 MB total size, no cross-region transactions, items must have different primary keys, no long-running transactions (no locks). <strong>MedCode use case:</strong> When finalizing an encounter: atomically write final codes (CODES#FINAL) + update encounter status ("finalized") + update client stats (totalCoded++) &mdash; all succeed or none. Prevents partial state.</div>
+                </div>
+
+                <div class="q">
+                    <div class="question">Q56: How would you handle 250 concurrent processing units writing to DynamoDB?</div>
+                    <div class="answer"><strong>On-Demand mode:</strong> Best for this scenario. DynamoDB auto-scales to handle burst writes from 250 units. No capacity planning. Adapts to traffic spikes when all units finish Textract simultaneously. <strong>If Provisioned:</strong> Calculate: 250 units × avg 5 writes/sec × 2 WCU each = 2,500 WCU. Enable Auto Scaling (target 70%, min 1,000, max 5,000 WCU). <strong>Avoid hot partitions:</strong> Use encounterId as PK (high cardinality, evenly distributed). <strong>Batch writes:</strong> Use <code>BatchWriteItem</code> (25 items max) to reduce API calls. Handle <code>UnprocessedItems</code> with exponential backoff. <strong>Monitoring:</strong> CloudWatch alarms on <code>ThrottledRequests</code>, <code>ConsumedWriteCapacityUnits</code> to detect issues early.</div>
                 </div>
             </div>
         </div>
